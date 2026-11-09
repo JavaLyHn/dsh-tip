@@ -94,3 +94,18 @@ test('prompt summary is one-line, control-free, and 80-code-point bounded', () =
   assert.equal(/[\r\n\u0000-\u001f\u007f-\u009f]/u.test(summary), false);
   assert.equal(summary.includes('\n'), false);
 });
+
+test('wire view reuses reference when completion is unchanged', () => {
+  const { createCompletionView } = requireProjection();
+  assert.equal(typeof createCompletionView, 'function', 'stable completion view factory is missing');
+  const view = createCompletionView('both');
+  const completion = { seq: 7, time: 700, fallbackLabel: 'Review report' };
+
+  const first = view({ pendingPrompt: null, lastCompletion: completion });
+  const afterPrompt = view({ pendingPrompt: 'A later request', lastCompletion: completion });
+  const afterCompletion = view({ pendingPrompt: null, lastCompletion: { ...completion, seq: 8, time: 800 } });
+
+  assert.strictEqual(afterPrompt, first);
+  assert.deepEqual(first, { mode: 'both', lastCompletion: completion });
+  assert.notStrictEqual(afterCompletion, first);
+});

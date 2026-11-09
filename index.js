@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import Schema from '@deepseek-ai/schemastery';
-import { reduceCompletion } from './lib/completion-projection.js';
+import { createCompletionView, reduceCompletion } from './lib/completion-projection.js';
 import { registerTaskbarEvents } from './lib/taskbar-bridge.js';
 
 const MODES = ['off', 'popup', 'taskbar', 'both'];
@@ -36,6 +36,7 @@ function taskbarTransport() {
 }
 
 export async function apply(ctx, config) {
+  const view = createCompletionView(config.mode);
   await ctx.sessionProjections.register({
     key: COMPLETION_KEY,
     stateSchema,
@@ -46,9 +47,7 @@ export async function apply(ctx, config) {
     apply: reduceCompletion,
     wire: {
       viewSchema,
-      view(state) {
-        return { mode: config.mode, lastCompletion: state.lastCompletion };
-      },
+      view,
       summary: true,
     },
   });
