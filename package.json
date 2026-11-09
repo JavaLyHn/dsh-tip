@@ -2,6 +2,7 @@
   "name": "@local/dsh-tip-completion-notice",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@11.28.5",
   "type": "module",
   "exports": {
     ".": "./index.js",
@@ -20,6 +21,7 @@
     "docs/desktop-integration.md",
     "patches/dsh-v0.2.2-rc.1.patch"
   ],
+  "dependencies": { "@deepseek-ai/schemastery": "3.19.0" },
   "peerDependencies": { "zod": "4.4.3" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

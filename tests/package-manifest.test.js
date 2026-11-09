@@ -32,11 +32,12 @@ test('bundle has complete runtime exports and files', async () => {
   }
 });
 
-test('metadata, defaults, and dependencies match the approved contract', async () => {
+test('metadata, defaults, and dependencies match the package contract', async () => {
   const manifest = await readJson('../package.json');
   assert.equal(manifest.name, '@local/dsh-tip-completion-notice');
   assert.equal(manifest.private, true);
-  assert.deepEqual(manifest.dependencies ?? {}, {});
+  assert.equal(manifest.packageManager, 'pnpm@11.28.5');
+  assert.deepEqual(manifest.dependencies, { '@deepseek-ai/schemastery': '3.19.0' });
   assert.deepEqual(manifest.peerDependencies, { zod: '4.4.3' });
   assert.deepEqual(manifest.dsh.client.inject, ['@deepseek-ai/dsh-client-ui-conversation']);
 
@@ -61,4 +62,12 @@ test('metadata, defaults, and dependencies match the approved contract', async (
   assert.match(icon, /^<svg\s/u);
   assert.match(icon, /<path\b/u);
   assert.match(icon, /<\/svg>\s*$/u);
+});
+
+test('host entry loads and exports a native Config schema', async () => {
+  const host = await import('../index.js');
+  assert.equal(typeof host.apply, 'function');
+  assert.equal(host.Config[Symbol.for('schemastery')], true);
+  assert.equal(typeof host.Config.type, 'string');
+  assert.equal(typeof host.Config.meta, 'object');
 });

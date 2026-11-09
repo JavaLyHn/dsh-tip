@@ -16,16 +16,23 @@ Only committed successful turn completions trigger a notice; aborted, blocked, f
 ## Download and install
 
 1. Download the repository from [GitHub](https://github.com/JavaLyHn/dsh-tip) or clone it, then keep the extracted checkout at a stable path.
-2. From the repository root, use the DSH CLI for the profile you want to update. Replace `YOUR_PROFILE` with that profile's name:
+2. From the repository root, install the bundle's runtime modules:
+
+   ```sh
+   pnpm install --ignore-scripts
+   ```
+
+   The bundle pins DSH's published `@deepseek-ai/schemastery` at `3.19.0` for its Config schema. The DSH package manager links a local checkout and does not install that checkout's dependencies, so keep its `node_modules` directory in place.
+3. From the repository root, use the DSH CLI for the profile you want to update. Replace `YOUR_PROFILE` with that profile's name:
 
    ```sh
    dsh plugin --profile YOUR_PROFILE add .
    ```
 
-   This installs the local bundle checkout and adds its bundle row. The standard DSH CLI forwards the command to `pnpm`, which must be on `PATH`. No build step is required. The package is private and is not published to npm.
-3. Restart the target profile if it is already running. In DSH's Plugins page, set the bundle's `mode` to `off`, `popup`, `taskbar`, or `both`; the initial value is `both`.
+   This adds the bundle row. The standard DSH CLI forwards the command to `pnpm`, which must be on `PATH`. No build step is required. The bundle itself is private and is not published to npm.
+4. Restart the target profile if it is already running. In DSH's Plugins page, set the bundle's `mode` to `off`, `popup`, `taskbar`, or `both`; the initial value is `both`.
 
-A local checkout is linked by the profile package manager, so keep the directory in place. To remove it later, run:
+A local checkout is linked by the profile package manager, so keep the directory and its installed `node_modules` in place. To remove the bundle later, run:
 
 ```sh
 dsh plugin --profile YOUR_PROFILE remove @local/dsh-tip-completion-notice
