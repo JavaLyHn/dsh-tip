@@ -9,7 +9,17 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "lib/*.js", "locale/*.json", "icon.svg"],
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "lib/*.js",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "docs/desktop-integration.md",
+    "patches/dsh-v0.2.2-rc.1.patch"
+  ],
   "peerDependencies": { "zod": "4.4.3" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
