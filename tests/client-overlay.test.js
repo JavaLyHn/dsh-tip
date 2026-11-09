@@ -275,8 +275,14 @@ async function createHarness(initialRows, initialPhase = 'ready') {
   await plugin.apply(ctx);
 
   const renderProps = {
-    useSessions: () => sessionSnapshot,
-    useSessionStatus: () => statusSnapshot,
+    useSessions: (selector) => {
+      assert.equal(typeof selector, 'function', 'useSessions requires a selector');
+      return selector(sessionSnapshot);
+    },
+    useSessionStatus: (selector) => {
+      assert.equal(typeof selector, 'function', 'useSessionStatus requires a selector');
+      return selector(statusSnapshot);
+    },
   };
   const renderer = component ? createRenderer(component, renderProps) : null;
 

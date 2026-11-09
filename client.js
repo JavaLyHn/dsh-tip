@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({
     const PROJECTION_KEY = 'dsh-tip/completion-notice';
     const LOCALE_NAMESPACE = 'dsh-tip-completion-notice';
     const MODES = ['off', 'popup', 'taskbar', 'both'];
+    const identity = (value) => value;
     const DICTIONARIES = {
       en: {
         heading: 'Answer complete',
@@ -141,8 +142,8 @@ window.__ModuleLoader__.load({
 
       function CompletionNotice(props) {
         React.useSyncExternalStore(subscribeLocale, getLocaleSnapshot, getLocaleSnapshot);
-        const sessions = props.useSessions();
-        const statuses = props.useSessionStatus();
+        const sessions = props.useSessions(identity);
+        const statuses = props.useSessionStatus(identity);
         const [noticeState, setNoticeState] = React.useState(() => ({ seen: null, notice: null }));
         const notice = noticeState.notice;
 
