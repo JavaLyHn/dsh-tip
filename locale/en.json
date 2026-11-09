@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Answer completion notice",
+    "description": "Shows a local in-app notice when an agent turn completes."
+  }
+}

@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-tip-completion-notice
+      name: '@local/dsh-tip-completion-notice'
+      config:
+        mode: both
