@@ -398,6 +398,25 @@ test('a new session completion after the baseline is announced', async () => {
   }
 });
 
+test('toast clears the Windows window-control corner and uses a stronger surface', async () => {
+  const harness = await createHarness([]);
+  try {
+    harness.render();
+    harness.setSnapshot([
+      summary('session-new', 'popup', completion(1, 100, 'Fresh prompt'), 'New session'),
+    ]);
+
+    const style = statusNode(harness)?.props.style;
+    assert.ok(style, 'completion toast is missing');
+    assert.equal(style.top, '64px');
+    assert.equal(style.borderLeft, '4px solid var(--dsw-alias-state-success-primary)');
+    assert.equal(style.background, 'var(--dsw-alias-bg-layer-1)');
+    assert.equal(style.fontSize, '15px');
+  } finally {
+    harness.dispose();
+  }
+});
+
 test('only popup/both render', async () => {
   for (const mode of ['off', 'taskbar', 'popup', 'both']) {
     const initial = summary('session-a', mode, completion(1, 100, 'First task'), 'Session title');
