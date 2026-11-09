@@ -33,11 +33,11 @@ function summary(id, mode, lastCompletion, title) {
   };
 }
 
-function snapshot(rows) {
+function snapshot(rows, phase = 'ready') {
   return {
     ids: rows.map((row) => row.id),
     byId: Object.fromEntries(rows.map((row) => [row.id, row])),
-    phase: 'ready',
+    phase,
     projectionsBySession: {},
   };
 }
@@ -180,7 +180,7 @@ function textContent(tree) {
   return textContent(tree.props?.children);
 }
 
-async function createHarness(initialRows) {
+async function createHarness(initialRows, initialPhase = 'ready') {
   let nextTimerId = 1;
   const timers = new Map();
   const listeners = new Set();
@@ -192,7 +192,7 @@ async function createHarness(initialRows) {
   let slotRegistration;
   let component;
   let focusCalls = 0;
-  let sessionSnapshot = snapshot(initialRows);
+  let sessionSnapshot = snapshot(initialRows, initialPhase);
   let statusSnapshot = statusesFor(initialRows);
   const previousGlobals = {
     window: globalThis.window,
@@ -290,8 +290,8 @@ async function createHarness(initialRows) {
     locale,
     get focusCalls() { return focusCalls; },
     render() { return renderer?.render() ?? null; },
-    setSnapshot(rows, statuses = undefined) {
-      sessionSnapshot = snapshot(rows);
+    setSnapshot(rows, statuses = undefined, phase = 'ready') {
+      sessionSnapshot = snapshot(rows, phase);
       statusSnapshot = statuses ?? statusesFor(rows);
       return renderer?.render() ?? null;
     },
@@ -342,6 +342,51 @@ test('initial snapshot does not replay', async () => {
     harness.render();
     assert.equal(statusNode(harness), null);
     assert.equal(harness.timers.size, 0);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('a pending session list does not establish the baseline', async () => {
+  const oldCompletion = summary('session-old', 'popup', completion(4, 400, 'Old prompt'), 'Old session');
+  const harness = await createHarness([], 'pending');
+  try {
+    assertOverlay(harness);
+    harness.render();
+    assert.equal(statusNode(harness), null);
+
+    harness.setSnapshot([oldCompletion]);
+    assert.equal(statusNode(harness), null);
+    assert.equal(harness.timers.size, 0);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('a session in the baseline does not replay when its projection arrives later', async () => {
+  const initial = { id: 'session-a', title: 'Existing title', projectionValues: {} };
+  const harness = await createHarness([initial]);
+  try {
+    assertOverlay(harness);
+    harness.render();
+    const updated = summary('session-a', 'popup', completion(4, 400, 'Old prompt'), 'Existing title');
+    harness.setSnapshot([updated]);
+    assert.equal(statusNode(harness), null);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('a new session completion after the baseline is announced', async () => {
+  const harness = await createHarness([]);
+  try {
+    assertOverlay(harness);
+    harness.render();
+    assert.equal(statusNode(harness), null);
+
+    const row = summary('session-new', 'popup', completion(1, 100, 'Fresh prompt'), 'New session');
+    harness.setSnapshot([row]);
+    assert.match(textContent(harness.tree), /New session/u);
   } finally {
     harness.dispose();
   }

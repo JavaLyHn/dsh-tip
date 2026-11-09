@@ -75,15 +75,17 @@ window.__ModuleLoader__.load({
     }
 
     function reconcile(previous, snapshot, statuses) {
+      if (snapshot?.phase !== 'ready') return previous;
       const rows = rowsFrom(snapshot);
       if (previous.seen === null) {
         const seen = new Map();
+        const baselineSessions = new Set(rows.map((summary) => summary.id));
         for (const summary of rows) {
           const projection = readProjection(summary);
           if (!projection) continue;
           seen.set(summary.id, projection.completion?.seq ?? null);
         }
-        return { seen, notice: null };
+        return { seen, baselineSessions, notice: null };
       }
 
       const present = new Set(rows.map((summary) => summary.id));
@@ -102,9 +104,13 @@ window.__ModuleLoader__.load({
         const marker = projection.completion;
         const currentSeq = marker?.seq ?? null;
         if (!seen.has(summary.id)) {
-          seen.set(summary.id, currentSeq);
+          if (previous.baselineSessions.has(summary.id)) {
+            seen.set(summary.id, currentSeq);
+            changed = true;
+            continue;
+          }
+          seen.set(summary.id, null);
           changed = true;
-          continue;
         }
         if (currentSeq === null) continue;
 
@@ -123,6 +129,7 @@ window.__ModuleLoader__.load({
       if (!changed && candidates.length === 0) return previous;
       return {
         seen,
+        baselineSessions: previous.baselineSessions,
         notice: candidates.length > 0 ? newestCompletion(candidates) : previous.notice,
       };
     }
