@@ -1,0 +1,377 @@
+diff --git a/apps/desktop/src/host-process.ts b/apps/desktop/src/host-process.ts
+index 338f93bd..0151625c 100644
+--- a/apps/desktop/src/host-process.ts
++++ b/apps/desktop/src/host-process.ts
+@@ -26,6 +26,9 @@ interface PlatformSessionEvent {
+ }
+ 
+ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | {
++  readonly type: 'dsh-taskbar-badge'
++  readonly enabled: boolean
++} | {
+   readonly type: 'starting'
+   readonly runId: PluginOperationRunId
+ } | { readonly type: 'shutdown-complete' } | {
+@@ -61,10 +64,17 @@ export const QUIT_INSPECTION_DEADLINE_MS = 2_000
+ const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
+ const runIdSchema = z.uuid()
+ 
+-function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
++/**
++ * Validate an IPC event received from the Desktop Host child.
++ * @param message - Unknown child-process message.
++ * @returns Whether the message matches the Desktop Host event union.
++ */
++export function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
+   if (typeof message !== 'object' || message === null || !('type' in message)) return false
+   const candidate = message as Record<string, unknown>
+   switch (candidate.type) {
++    case 'dsh-taskbar-badge':
++      return typeof candidate.enabled === 'boolean' && Object.keys(candidate).length === 2
+     case 'starting':
+       return runIdSchema.safeParse(candidate.runId).success
+     case 'shutdown-complete':
+@@ -187,6 +197,8 @@ export class DesktopHostProcess {
+    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
+    * @param onPlatformSession - Private credential updates for embedded Platform views.
+    * @param onPluginOperation - Optional diagnostic sink; malformed records are ignored without failing the Host.
++   * @param onTaskbarBadge - Optional boolean-only signal for the primary window's generic taskbar overlay;
++   *   absent callbacks ignore badge signals.
+    */
+   constructor(
+     private readonly node: string,
+@@ -200,6 +212,7 @@ export class DesktopHostProcess {
+ 
+     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
+     private readonly onPluginOperation?: (record: PluginOperationRecord) => void,
++    private readonly onTaskbarBadge?: (enabled: boolean) => void,
+   ) {}
+ 
+   /**
+@@ -251,6 +264,12 @@ export class DesktopHostProcess {
+         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
+       }
+       else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
++      else if (message.type === 'dsh-taskbar-badge') {
++        const onTaskbarBadge = this.onTaskbarBadge
++        if (onTaskbarBadge === undefined) return
++        try { onTaskbarBadge(message.enabled) }
++        catch (_error) { console.error('desktop taskbar badge listener failed') }
++      }
+       else {
+         const request = this.controlRequests.get(message.requestId)
+         if (message.error === undefined) request?.resolve(message)
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index d8d0e30c..8b8afda6 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -64,10 +64,26 @@ import { readDesktopRuntime } from './runtime-tree.ts'
+ import { DesktopBrowserGuests } from './browser-guests.ts'
+ import { installDesktopShortcuts } from './keyboard.ts'
+ import { DesktopUpdateOverlays } from './update-overlay.ts'
++import { createTaskbarOverlay } from './taskbar-overlay.ts'
+ import { DesktopQuitConfirmation } from './quit-confirmation.ts'
+ import { DesktopTray } from './tray.ts'
+ import { DesktopBackgroundNotice } from './background-notice.ts'
+ 
++/** Transparent 16×16 blue dot for the Windows taskbar overlay. */
++const TASKBAR_DOT_PNG_DATA_URL = [
++  'data:image/png;base64,',
++  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB70lEQVR42o2Tu2uUQRTFz7kz+8pGI5aW',
++  'YpUgGAkiWKWyttiApcQmnRDT2HymU1CroBDwH9h0FpLCwsYHSoqIgaCVCxYWdsnme8zMsdjskgTzONU8',
++  '7v3Nudw7wFF15XCcOnKAePDIHwrIMsMc42SmcY4Xs6K/ZpaQYL2ainebi/wNAJAIUgAwonW6cmtzjFPP',
++  'ivt0bpnmLnGIT0Cqwg5ieN34ubW0sTpTDSEDQCbDMtPk0/5L324tpCIihTKC0PBFmneuVUfKyw+m+u1v',
++  'D9EHAENXDstMU0925n27tRD6eVAsE0lH0BP0pDmkqLDbr9xY/VZM/RUA6KzBCIiTK2ijn/fM1yZUlQBp',
++  'OF7BWk2f8urG1lL9qwEU94pZ12heUFXqlGQIAgkJcW5QAgApXacHNaz5ZAKRQIjTIwBJ4gy5hzmDDtr+',
++  '5hcSB/TTRAiGZEq9EcBq4W3Mi9KcIySdAWJm1h218fuDc38U0ytr1k1SONa2UnCNlo+7+Ze2Nd4jkxk6',
++  'SMhkU5dbi3Ev/1Q7P1aTFAUFSBH7a0nBNce8YvhrEXc/L3IvG42yRDwGr1zEeDOGF/R+ngYo7TvmIDIV',
++  '5cdQ5Pe2H038GE4vD/gbfZCrz8ubMekOwWkSAtkT8aa5vbm+sTpTDZP/VySR6cRBOnr/D8zB+Ms8nnhj',
++  'AAAAAElFTkSuQmCC',
++].join('')
++
+ let focusPrimaryWindow = (): void => {}
+ let stopForRecovery = async (): Promise<void> => { await stopOperationReports() }
+ let shuttingDown = false
+@@ -394,6 +410,18 @@ async function main(): Promise<void> {
+   let startup: Promise<void> | undefined
+   let workspaceRecovery: Promise<void> | undefined
+   let mainWindow: BrowserWindow | undefined
++  let taskbarOverlay: ReturnType<typeof createTaskbarOverlay> | undefined
++  const setTaskbarBadge = (enabled: boolean): void => {
++    const overlay = taskbarOverlay
++    if (overlay === undefined) return
++    overlay.set(enabled)
++  }
++  const disposeTaskbarOverlay = (): void => {
++    const overlay = taskbarOverlay
++    taskbarOverlay = undefined
++    if (overlay === undefined) return
++    overlay.dispose()
++  }
+   let welcomeWindow: BrowserWindow | undefined
+   const installFileDrag = (): (() => Promise<void>) => installDesktopFileDrag(
+     event => assertProductSender(event),
+@@ -517,15 +545,18 @@ async function main(): Promise<void> {
+     owner => isMandatory() || updateOverlays.input(owner).blocked)
+   const backend = new DesktopBackendController((onFailure) => {
+     const hostInspectPort = developmentHostInspectPort(development)
++    const hostChildEnvironment: NodeJS.ProcessEnv = { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }
++    if (process.platform === 'win32') hostChildEnvironment.DSH_DESKTOP_TASKBAR_API = '1'
++    else delete hostChildEnvironment.DSH_DESKTOP_TASKBAR_API
+     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
+-      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
++      hostInspectPort, hostChildEnvironment, onFailure,
+       primaryRuntime,
+       resources, (next) => { platformView.setSession(next) }, (record) => {
+         operationJournal ??= new OperationJournal(join(app.getPath('userData'), 'plugin-operations'), {
+           segmentBytes: 256 * 1024, recordBytes: 4096, queuedBytes: 64 * 1024,
+         })
+         operationJournal.enqueue(JSON.stringify(record))
+-      })
++      }, setTaskbarBadge)
+     return {
+       start: async () => {
+         const ready = await host.start()
+@@ -1022,11 +1053,13 @@ async function main(): Promise<void> {
+   }
+   powerMonitor.on('resume', automaticCheck)
+   app.on('will-quit', () => {
++    disposeTaskbarOverlay()
+     updateSchedule.dispose()
+     powerMonitor.off('resume', automaticCheck)
+     updates.dispose()
+   })
+ 
++  const taskbarDotIcon = nativeImage.createFromDataURL(TASKBAR_DOT_PNG_DATA_URL)
+   const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
+     : join(process.resourcesPath, 'icon.png')
+   app.setAboutPanelOptions({
+@@ -1171,6 +1204,9 @@ async function main(): Promise<void> {
+   const createMainWindow = (): BrowserWindow => {
+     const window = createWindow(appPreload, false, true)
+     mainWindow = window
++    disposeTaskbarOverlay()
++    const overlay = createTaskbarOverlay(window, process.platform, taskbarDotIcon)
++    taskbarOverlay = overlay
+     browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
+     shortcuts.attach(window)
+     window.on('focus', automaticCheck)
+@@ -1195,7 +1231,10 @@ async function main(): Promise<void> {
+       window.on('focus', () => { sessionEnding = false })
+       window.on('show', () => { sessionEnding = false })
+     }
+-    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
++    window.on('closed', () => {
++      if (mainWindow === window) mainWindow = undefined
++      if (taskbarOverlay === overlay) disposeTaskbarOverlay()
++    })
+     window.webContents.on('console-message', (details) => {
+       if (details.level !== 'error') return
+       rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
+@@ -1348,6 +1387,7 @@ async function main(): Promise<void> {
+   const finishQuit = (): void => {
+     quitting = true
+     shuttingDown = true
++    disposeTaskbarOverlay()
+     updateJournal?.action('quit-requested')
+     quitConfirmation.dispose()
+     backgroundNotice?.dispose()
+@@ -1371,6 +1411,7 @@ async function main(): Promise<void> {
+   app.on('before-quit', (event) => {
+     if (shellInstallerOwnsQuit) {
+       shuttingDown = true
++      disposeTaskbarOverlay()
+       quitConfirmation.dispose()
+       backgroundNotice?.dispose()
+       updateJournal?.action('quit-requested')
+diff --git a/apps/desktop/src/taskbar-overlay.ts b/apps/desktop/src/taskbar-overlay.ts
+new file mode 100644
+index 00000000..8ea717a6
+--- /dev/null
++++ b/apps/desktop/src/taskbar-overlay.ts
+@@ -0,0 +1,64 @@
++import type { BrowserWindow, NativeImage } from 'electron'
++import type { EventEmitter } from 'node:events'
++
++/** Primary-window control for one optional Windows taskbar overlay. */
++export interface DesktopTaskbarOverlay {
++  /**
++   * @param enabled - Show the dot while the window is unfocused, or clear it.
++   * @returns Nothing.
++   */
++  set(enabled: boolean): void
++  /**
++   * @returns Nothing; clears the icon and removes the window listeners.
++   */
++  dispose(): void
++}
++
++type TaskbarWindow = Pick<BrowserWindow, 'isDestroyed' | 'isFocused' | 'setOverlayIcon'>
++  & Pick<EventEmitter, 'on' | 'off'>
++
++/**
++ * Own a generic taskbar dot for one primary window; unsupported platforms do nothing.
++ * @param window - Primary Desktop window receiving the overlay.
++ * @param platform - Operating-system platform for the running Desktop process.
++ * @param dotIcon - Generic 16×16 icon with no session data.
++ * @returns A controller that clears on focus, window destruction, or disposal.
++ */
++export function createTaskbarOverlay(window: TaskbarWindow, platform: NodeJS.Platform, dotIcon: NativeImage): DesktopTaskbarOverlay {
++  if (platform !== 'win32') return { set: () => {}, dispose: () => {} }
++
++  let enabled = false
++  let disposed = false
++  const update = (show: boolean): void => {
++    if (window.isDestroyed()) return
++    try {
++      window.setOverlayIcon(show && !window.isFocused() ? dotIcon : null, '')
++    } catch (_error) {
++      console.error('dsh desktop: taskbar overlay update failed')
++    }
++  }
++  function focus(): void {
++    enabled = false
++    update(false)
++  }
++  function close(): void { dispose() }
++  function dispose(): void {
++    if (disposed) return
++    disposed = true
++    enabled = false
++    window.off('focus', focus)
++    window.off('closed', close)
++    update(false)
++  }
++
++  window.on('focus', focus)
++  window.on('closed', close)
++  return {
++    set(next) {
++      if (disposed) return
++      enabled = next
++      update(enabled)
++    },
++    dispose,
++  }
++}
+diff --git a/apps/desktop/tests/taskbar-overlay.spec.ts b/apps/desktop/tests/taskbar-overlay.spec.ts
+new file mode 100644
+index 00000000..93eb892f
+--- /dev/null
++++ b/apps/desktop/tests/taskbar-overlay.spec.ts
+@@ -0,0 +1,115 @@
++import { EventEmitter } from 'node:events'
++import { describe, expect, it } from 'vitest'
++import type { NativeImage } from 'electron'
++import { isDesktopHostEvent } from '../src/host-process.ts'
++import { createTaskbarOverlay } from '../src/taskbar-overlay.ts'
++
++type TaskbarOverlayWindow = Parameters<typeof createTaskbarOverlay>[0]
++
++class FakeWindow extends EventEmitter implements TaskbarOverlayWindow {
++  readonly calls: Array<{ readonly image: NativeImage | null; readonly description: string }> = []
++  private focused: boolean
++  private destroyed = false
++
++  constructor(focused = false) {
++    super()
++    this.focused = focused
++  }
++
++  isDestroyed(): boolean { return this.destroyed }
++  isFocused(): boolean { return this.focused }
++  setOverlayIcon(image: NativeImage | null, description: string): void { this.calls.push({ image, description }) }
++  setFocused(value: boolean): void { this.focused = value }
++  setDestroyed(value: boolean): void { this.destroyed = value }
++}
++
++function createWindow(initiallyFocused = false) {
++  const window = new FakeWindow(initiallyFocused)
++  return { window, calls: window.calls }
++}
++
++const dotIcon = {} as NativeImage
++
++describe('Desktop Host taskbar badge IPC', () => {
++  it('accepts only strict boolean badge messages', () => {
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: true })).toBe(true)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: false })).toBe(true)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: 'true' })).toBe(false)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge' })).toBe(false)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: true, extra: 1 })).toBe(false)
++  })
++
++  it('rejects title and session fields', () => {
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: true, title: 'A task' })).toBe(false)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: true, prompt: 'Private text' })).toBe(false)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: true, sessionId: 'session-id' })).toBe(false)
++    expect(isDesktopHostEvent({ type: 'dsh-taskbar-badge', enabled: true, session: { id: 'session-id' } })).toBe(false)
++  })
++})
++
++describe('Desktop taskbar overlay', () => {
++  it('sets only on unfocused Windows', () => {
++    const f = createWindow()
++    const overlay = createTaskbarOverlay(f.window, 'win32', dotIcon)
++
++    overlay.set(true)
++    expect(f.calls.at(-1)).toEqual({ image: dotIcon, description: '' })
++    overlay.set(false)
++    expect(f.calls.at(-1)).toEqual({ image: null, description: '' })
++    overlay.set(true)
++    expect(f.calls.at(-1)).toEqual({ image: dotIcon, description: '' })
++    f.window.setFocused(true)
++    overlay.set(true)
++    expect(f.calls.at(-1)).toEqual({ image: null, description: '' })
++    overlay.set(false)
++    expect(f.calls.at(-1)).toEqual({ image: null, description: '' })
++    overlay.dispose()
++  })
++
++  it('does nothing on focused/non-Windows', () => {
++    const focused = createWindow(true)
++    const focusedOverlay = createTaskbarOverlay(focused.window, 'win32', dotIcon)
++    focusedOverlay.set(true)
++    expect(focused.calls.every(call => call.image === null)).toBe(true)
++    focusedOverlay.dispose()
++
++    const unsupported = createWindow()
++    const unsupportedOverlay = createTaskbarOverlay(unsupported.window, 'darwin', dotIcon)
++    unsupportedOverlay.set(true)
++    unsupportedOverlay.dispose()
++    expect(unsupported.calls).toEqual([])
++    expect(unsupported.window.listenerCount('focus')).toBe(0)
++    expect(unsupported.window.listenerCount('closed')).toBe(0)
++  })
++
++  it('focus, close, shutdown clear and remove listeners', () => {
++    const f = createWindow()
++    const overlay = createTaskbarOverlay(f.window, 'win32', dotIcon)
++    overlay.set(true)
++    expect(f.calls.at(-1)?.image).toBe(dotIcon)
++
++    f.window.setFocused(true)
++    f.window.emit('focus')
++    expect(f.calls.at(-1)).toEqual({ image: null, description: '' })
++
++    f.window.emit('closed')
++    expect(f.calls.at(-1)).toEqual({ image: null, description: '' })
++    expect(f.window.listenerCount('focus')).toBe(0)
++    expect(f.window.listenerCount('closed')).toBe(0)
++    f.window.setDestroyed(true)
++    const closedCalls = f.calls.length
++    overlay.set(true)
++    expect(f.calls).toHaveLength(closedCalls)
++
++    const shutdown = createWindow()
++    const shutdownOverlay = createTaskbarOverlay(shutdown.window, 'win32', dotIcon)
++    shutdownOverlay.set(true)
++    shutdownOverlay.dispose()
++    expect(shutdown.calls.at(-1)).toEqual({ image: null, description: '' })
++    expect(shutdown.window.listenerCount('focus')).toBe(0)
++    expect(shutdown.window.listenerCount('closed')).toBe(0)
++    shutdownOverlay.dispose()
++    shutdownOverlay.set(true)
++    expect(shutdown.calls).toHaveLength(2)
++  })
++})
