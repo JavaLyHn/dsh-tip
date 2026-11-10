@@ -188,6 +188,13 @@ async function createHarness(initialRows, initialPhase = 'ready') {
   const registrations = [];
   const contextCleanups = [];
   const navigationCalls = [];
+  const sessionUsingCalls = [];
+  const submissionCalls = [];
+  const promptCalls = [];
+  const abandonedSubmissions = [];
+  let promptResult = { ok: true, value: { accepted: true } };
+  let promptFailure = null;
+  let nextRequestId = 1;
   let localeSnapshot = { active: 'en', revision: 0 };
   let slotName;
   let slotRegistration;
@@ -255,9 +262,34 @@ async function createHarness(initialRows, initialPhase = 'ready') {
       navigationCalls.push(target);
     },
   };
+  const sessionsService = {
+    async using(target, options, operation) {
+      sessionUsingCalls.push({ target, options });
+      const session = {
+        beginSubmission(input) {
+          const requestId = `request-${nextRequestId++}`;
+          submissionCalls.push({ target, input, requestId });
+          return {
+            requestId,
+            abandon() {
+              abandonedSubmissions.push(requestId);
+            },
+          };
+        },
+        async prompt(content, mode, signal, requestId) {
+          promptCalls.push({ target, content, mode, signal, requestId });
+          if (promptFailure) throw promptFailure;
+          return promptResult;
+        },
+      };
+      const binding = { session };
+      return operation({ binding, ready: Promise.resolve(binding) });
+    },
+  };
   const ctx = {
     locale,
     uiWorkspace,
+    sessions: sessionsService,
     effect(effect) {
       const cleanup = effect();
       if (typeof cleanup === 'function') contextCleanups.push(cleanup);
@@ -302,7 +334,13 @@ async function createHarness(initialRows, initialPhase = 'ready') {
     timers,
     registrations,
     navigationCalls,
+    sessionUsingCalls,
+    submissionCalls,
+    promptCalls,
+    abandonedSubmissions,
     locale,
+    setPromptResult(result) { promptResult = result; },
+    setPromptFailure(error) { promptFailure = error; },
     get focusCalls() { return focusCalls; },
     render() { return renderer?.render() ?? null; },
     setSnapshot(rows, statuses = undefined, phase = 'ready') {
@@ -340,6 +378,7 @@ function assertOverlay(harness) {
   assert.equal(typeof harness.component, 'function', 'overlay component is missing');
   assert.equal(harness.registration?.id, 'dsh-tip-completion-notice');
   assert.ok(harness.injects.includes('uiWorkspace'), 'session navigation service is not injected');
+  assert.ok(harness.injects.includes('sessions'), 'session submission service is not injected');
 }
 
 function statusNode(harness) {
@@ -347,11 +386,23 @@ function statusNode(harness) {
 }
 
 function toastNode(harness) {
-  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-toast')[0] ?? null;
+  return findAll(harness.tree, (node) => node.props?.className?.startsWith('dsh-tip-card'))[0] ?? null;
 }
 
 function actionButtonNode(harness) {
-  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-action')[0] ?? null;
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-toast__header')[0] ?? null;
+}
+
+function composerNode(harness) {
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-composer')[0] ?? null;
+}
+
+function inputNode(harness) {
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-composer__input')[0] ?? null;
+}
+
+function sendButtonNode(harness) {
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-composer__send')[0] ?? null;
 }
 
 function frameNode(harness) {
@@ -421,7 +472,7 @@ test('a new session completion after the baseline is announced', async () => {
   }
 });
 
-test('completion cue is centered, actionable, animated, and motion-aware', async () => {
+test('completion cue stays top-centered without a visible navigation hint or arrow', async () => {
   const harness = await createHarness([]);
   try {
     harness.render();
@@ -433,34 +484,41 @@ test('completion cue is centered, actionable, animated, and motion-aware', async
     const button = actionButtonNode(harness);
     assert.ok(toast, 'completion toast is missing');
     assert.ok(button, 'completion action button is missing');
-    assert.equal(toast.props.role, 'status');
-    assert.equal(toast.props['aria-live'], 'polite');
+    assert.equal(statusNode(harness)?.props?.['aria-live'], 'polite');
+    assert.equal(statusNode(harness)?.props?.['aria-atomic'], 'true');
     assert.equal(button.type, 'button');
     assert.equal(button.props['aria-label'], 'Open the completed conversation');
-    assert.match(textContent(button), /Click to open this conversation/u);
+    assert.equal(button.props['aria-expanded'], false);
+    assert.match(textContent(button), /Answer complete/u);
+    assert.doesNotMatch(textContent(button), /click to open|→/iu);
+    assert.equal(composerNode(harness), null, 'composer remains hidden until expansion');
     assert.equal(frameNode(harness)?.props?.['aria-hidden'], true);
 
     const css = textContent(styleNode(harness));
     assert.match(css, /top:\s*64px/u);
     assert.match(css, /left:\s*50%/u);
     assert.match(css, /transform:\s*translateX\(-50%\)/u);
-    assert.match(css, /max-width:\s*min\(340px, calc\(100vw - 28px\)\)/u);
+    assert.match(css, /max-width:\s*min\(410px, calc\(100vw - 28px\)\)/u);
     assert.match(css, /pointer-events:\s*none/u);
     assert.match(css, /pointer-events:\s*auto/u);
     assert.match(css, /dsh-tip-frame-pulse 1\.25s ease-in-out 2/u);
-    assert.match(css, /dsh-tip-toast-life 6500ms/u);
-    assert.match(css, /background:\s*color-mix\(in srgb, var\(--dsw-alias-bg-overlay\) 90%, transparent\)/u);
+    assert.match(css, /dsh-tip-toast-enter 180ms ease-out/u);
+    assert.doesNotMatch(css, /dsh-tip-toast-life|dsh-tip-toast__arrow/u);
+    assert.match(css, /-webkit-line-clamp:\s*2/u);
+    assert.match(css, /background:\s*color-mix\(in srgb, var\(--dsw-alias-bg-overlay\) 94%, transparent\)/u);
     assert.doesNotMatch(css, /backdrop-filter/u);
     assert.match(css, /:focus-visible/u);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/u);
     assert.match(css, /--dsw-alias-brand-primary/u);
+    assert.match(css, /--dsw-alias-state-error-primary/u);
+    assert.match(css, /--dsw-alias-state-success-primary/u);
     assert.doesNotMatch(css, /#[\da-f]{3,8}\b|rgba?\(/iu);
   } finally {
     harness.dispose();
   }
 });
 
-test('clicking the notice opens its completed session and dismisses the cue', async () => {
+test('clicking the notice body opens its completed session and dismisses the cue', async () => {
   const initial = [
     summary('session-a', 'popup', completion(1, 100, 'Old A'), 'Session A'),
     summary('session-b', 'popup', completion(1, 110, 'Old B'), 'Session B'),
@@ -474,10 +532,12 @@ test('clicking the notice opens its completed session and dismisses the cue', as
       summary('session-b', 'popup', completion(1, 110, 'Old B'), 'Session B'),
     ]);
 
-    const button = actionButtonNode(harness);
-    assert.ok(button);
-    assert.equal(button.props.type, 'button');
-    button.props.onClick();
+    const card = toastNode(harness);
+    assert.ok(card);
+    card.props.onClick({
+      target: { closest: () => null },
+      nativeEvent: { pointerType: 'mouse' },
+    });
     assert.deepEqual(harness.navigationCalls, ['session-a']);
 
     harness.render();
@@ -522,7 +582,7 @@ test('a changed completion waits for its session status snapshot', async () => {
   }
 });
 
-test('completion notice does not reveal session titles or prompt previews', async () => {
+test('session title and bounded request preview appear only while expanded', async () => {
   const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier prompt'), 'Earlier title');
   const harness = await createHarness([initial]);
   try {
@@ -534,11 +594,236 @@ test('completion notice does not reveal session titles or prompt previews', asyn
       summary('session-a', 'popup', completion(2, 200, sensitivePrompt), hostileTitle),
     ]);
 
-    const visible = textContent(statusNode(harness));
-    assert.match(visible, /Answer complete/u);
-    assert.match(visible, /Click to open this conversation/u);
-    assert.doesNotMatch(visible, /Private project|Sensitive prompt|session-a/u);
-    assert.equal(findAll(statusNode(harness), (node) => node.type === 'button').length, 1);
+    const button = actionButtonNode(harness);
+    assert.match(textContent(statusNode(harness)), /Answer complete/u);
+    assert.doesNotMatch(textContent(button), /Private project|Sensitive prompt|session-a/u);
+    assert.equal(composerNode(harness), null);
+
+    toastNode(harness).props.onMouseEnter();
+    harness.render();
+    const expanded = toastNode(harness);
+    const expandedText = textContent(expanded);
+    assert.match(expandedText, /Private project notes/u);
+    assert.match(expandedText, /Sensitive prompt body/u);
+    assert.doesNotMatch(expandedText, /\u0000|[\r\n\t]/u);
+    const preview = findAll(expanded, (node) => node.props?.className === 'dsh-tip-toast__prompt')[0];
+    assert.ok(preview);
+    assert.ok(Array.from(textContent(preview)).length <= 80);
+    assert.equal(Array.from(textContent(preview)).at(-1), '…', 'truncated text ends with an ellipsis');
+    assert.ok(composerNode(harness), 'composer appears in the expanded card');
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('in-card follow-up queues to the same session and keeps the notification open', async () => {
+  const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier task'), 'Session A');
+  const harness = await createHarness([initial]);
+  try {
+    assertOverlay(harness);
+    harness.render();
+    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Completed task'), 'Session A')]);
+
+    toastNode(harness).props.onMouseEnter();
+    harness.render();
+    let input = inputNode(harness);
+    assert.ok(input, 'expanded card exposes the composer');
+
+    toastNode(harness).props.onClick({
+      target: {
+        closest(selector) {
+          return selector === '.dsh-tip-composer' ? {} : null;
+        },
+      },
+    });
+    assert.deepEqual(harness.navigationCalls, [], 'clicking inside the composer does not navigate');
+
+    let shiftPrevented = false;
+    input.props.onKeyDown({
+      key: 'Enter',
+      shiftKey: true,
+      isComposing: false,
+      preventDefault() { shiftPrevented = true; },
+    });
+    assert.equal(shiftPrevented, false, 'Shift+Enter remains a newline');
+    assert.equal(harness.promptCalls.length, 0);
+
+    input.props.onChange({ target: { value: '  follow-up question  ' } });
+    harness.render();
+    input = inputNode(harness);
+    let enterPrevented = false;
+    await input.props.onKeyDown({
+      key: 'Enter',
+      shiftKey: false,
+      isComposing: false,
+      preventDefault() { enterPrevented = true; },
+    });
+    harness.render();
+
+    assert.equal(enterPrevented, true);
+    assert.deepEqual(harness.sessionUsingCalls, [{
+      target: 'session-a',
+      options: { source: 'dsh-tip-completion-notice' },
+    }]);
+    assert.deepEqual(harness.submissionCalls[0]?.input, {
+      mode: 'queue',
+      text: '  follow-up question  ',
+      attachments: [],
+    });
+    assert.deepEqual(harness.promptCalls[0]?.content, [{ type: 'text', text: '  follow-up question  ' }]);
+    assert.equal(harness.promptCalls[0]?.target, 'session-a');
+    assert.equal(harness.promptCalls[0]?.mode, 'queue');
+    assert.equal(harness.promptCalls[0]?.signal, undefined);
+    assert.equal(harness.promptCalls[0]?.requestId, harness.submissionCalls[0]?.requestId);
+    assert.deepEqual(harness.navigationCalls, [], 'typing and sending do not navigate');
+    assert.equal(inputNode(harness)?.props?.value, '');
+    assert.match(textContent(toastNode(harness)), /Sent/u);
+    assert.equal(sendButtonNode(harness)?.props?.type, 'submit');
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), []);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('touch can expand the composer before the card navigates', async () => {
+  const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier task'), 'Session A');
+  const harness = await createHarness([initial]);
+  try {
+    harness.render();
+    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Completed task'), 'Session A')]);
+
+    const timerBeforeExpand = [...harness.timers.keys()][0];
+    actionButtonNode(harness).props.onClick({ nativeEvent: { pointerType: 'touch' } });
+    harness.render();
+    assert.ok(composerNode(harness), 'first touch expands the card');
+    assert.notEqual([...harness.timers.keys()][0], timerBeforeExpand, 'touch expansion restarts the dismiss timer');
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [6500]);
+    assert.deepEqual(harness.navigationCalls, []);
+
+    actionButtonNode(harness).props.onClick({ nativeEvent: { pointerType: 'touch' } });
+    harness.render();
+    assert.deepEqual(harness.navigationCalls, ['session-a'], 'second touch follows the normal navigation action');
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('failed follow-up keeps the draft and displays a short error', async () => {
+  const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier task'), 'Session A');
+  const harness = await createHarness([initial]);
+  try {
+    harness.render();
+    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Completed task'), 'Session A')]);
+    toastNode(harness).props.onMouseEnter();
+    harness.render();
+    inputNode(harness).props.onChange({ target: { value: 'keep this draft' } });
+    harness.setPromptResult({ ok: false, error: new Error('remote rejected') });
+    harness.render();
+
+    const form = composerNode(harness);
+    let prevented = false;
+    await form.props.onSubmit({ preventDefault() { prevented = true; } });
+    harness.render();
+
+    assert.equal(prevented, true);
+    assert.equal(inputNode(harness)?.props?.value, 'keep this draft');
+    assert.match(textContent(toastNode(harness)), /Could not send\. Your draft was kept\./u);
+    assert.equal(harness.abandonedSubmissions.length, 1);
+    assert.deepEqual(harness.navigationCalls, []);
+    assert.equal(harness.timers.size, 0, 'a failed draft pins the notice');
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('a rejected prompt abandons its echo and preserves the draft', async () => {
+  const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier task'), 'Session A');
+  const harness = await createHarness([initial]);
+  try {
+    harness.render();
+    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Completed task'), 'Session A')]);
+    toastNode(harness).props.onMouseEnter();
+    harness.render();
+    inputNode(harness).props.onChange({ target: { value: 'survive disconnect' } });
+    harness.setPromptFailure(new Error('connection lost'));
+    harness.render();
+
+    await composerNode(harness).props.onSubmit({ preventDefault() {} });
+    harness.render();
+
+    assert.equal(inputNode(harness)?.props?.value, 'survive disconnect');
+    assert.match(textContent(toastNode(harness)), /Could not send\. Your draft was kept\./u);
+    assert.equal(harness.abandonedSubmissions.length, 1);
+    assert.deepEqual(harness.navigationCalls, []);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('auto-dismiss pauses for hover, keyboard focus, and a non-empty draft', async () => {
+  const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier task'), 'Session A');
+  const harness = await createHarness([initial]);
+  try {
+    harness.render();
+    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Completed task'), 'Session A')]);
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [6500]);
+
+    let card = toastNode(harness);
+    card.props.onMouseEnter();
+    harness.render();
+    assert.equal(harness.timers.size, 0, 'hover pauses the timeout');
+
+    card = toastNode(harness);
+    card.props.onMouseLeave();
+    harness.render();
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [6500]);
+
+    card = toastNode(harness);
+    card.props.onFocus();
+    harness.render();
+    assert.equal(harness.timers.size, 0, 'keyboard focus pauses the timeout');
+
+    card = toastNode(harness);
+    card.props.onBlur({ relatedTarget: null, currentTarget: { contains: () => false } });
+    harness.render();
+    card = toastNode(harness);
+    card.props.onMouseEnter();
+    harness.render();
+    inputNode(harness).props.onChange({ target: { value: 'unsent draft' } });
+    harness.render();
+    toastNode(harness).props.onMouseLeave();
+    harness.render();
+    assert.equal(harness.timers.size, 0, 'a draft remains protected after pointer leave');
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('new completions wait until a hovered notice is released', async () => {
+  const initial = [
+    summary('session-a', 'both', completion(1, 100, 'Old A'), 'Session A'),
+    summary('session-b', 'both', completion(1, 110, 'Old B'), 'Session B'),
+  ];
+  const harness = await createHarness(initial);
+  try {
+    harness.render();
+    harness.setSnapshot([
+      summary('session-a', 'both', completion(2, 200, 'Current A'), 'Session A'),
+      summary('session-b', 'both', completion(1, 110, 'Old B'), 'Session B'),
+    ]);
+    const currentCard = toastNode(harness);
+    currentCard.props.onMouseEnter();
+    harness.render();
+
+    harness.setSnapshot([
+      summary('session-a', 'both', completion(3, 300, 'Later A'), 'Session A'),
+      summary('session-b', 'both', completion(2, 400, 'Newest B'), 'Session B'),
+    ]);
+    assert.equal(actionButtonNode(harness)?.props?.key, 'session-a:2:200:header');
+
+    toastNode(harness).props.onMouseLeave();
+    harness.render();
+    assert.equal(actionButtonNode(harness)?.props?.key, 'session-b:2:400:header');
   } finally {
     harness.dispose();
   }
@@ -559,7 +844,7 @@ test('a newer simultaneous completion restarts one newest visual cue', async () 
     ]);
     const firstToast = actionButtonNode(harness);
     assert.ok(firstToast);
-    assert.equal(firstToast.props.key, 'session-a:2:200:action');
+    assert.equal(firstToast.props.key, 'session-a:2:200:header');
 
     harness.setSnapshot([
       summary('session-a', 'both', completion(3, 300, 'Task A final'), 'Task A title'),
@@ -567,10 +852,10 @@ test('a newer simultaneous completion restarts one newest visual cue', async () 
     ]);
     const newestToast = actionButtonNode(harness);
     assert.equal(findAll(harness.tree, (node) => node.props?.role === 'status').length, 1);
-    assert.equal(newestToast?.props?.key, 'session-b:2:400:action');
+    assert.equal(newestToast?.props?.key, 'session-b:2:400:header');
     assert.notEqual(newestToast?.props?.key, firstToast.props.key);
     assert.match(textContent(newestToast), /Answer complete/u);
-    assert.match(textContent(newestToast), /Click to open this conversation/u);
+    assert.doesNotMatch(textContent(newestToast), /Click to open|→/iu);
   } finally {
     harness.dispose();
   }
@@ -615,8 +900,9 @@ test('copy is localized, actionable, and accessible', async () => {
     assert.equal(status?.props?.['aria-live'], 'polite');
     assert.equal(status?.props?.['aria-atomic'], 'true');
     assert.match(textContent(status), /Answer complete/u);
-    assert.match(textContent(status), /Click to open this conversation/u);
+    assert.doesNotMatch(textContent(status), /click to open|→/iu);
     assert.doesNotMatch(textContent(status), /Localized task|Task/u);
+    assert.doesNotMatch(textContent(button), /click to open|→/iu);
     assert.equal(button?.type, 'button');
     assert.equal(button?.props?.['aria-label'], 'Open the completed conversation');
     assert.equal(findAll(harness.tree, (node) => Object.hasOwn(node.props ?? {}, 'autoFocus')).length, 0);
@@ -627,7 +913,8 @@ test('copy is localized, actionable, and accessible', async () => {
     status = statusNode(harness);
     button = actionButtonNode(harness);
     assert.match(textContent(status), /回答已完成/u);
-    assert.match(textContent(status), /点击打开对应会话/u);
+    assert.doesNotMatch(textContent(status), /点击打开|→/u);
+    assert.doesNotMatch(textContent(button), /点击打开|→/u);
     assert.equal(button?.props?.['aria-label'], '打开已完成的会话');
     assert.equal(harness.focusCalls, 0);
   } finally {

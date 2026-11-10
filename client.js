@@ -5,18 +5,32 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const PROJECTION_KEY = 'dsh-tip/completion-notice';
     const LOCALE_NAMESPACE = 'dsh-tip-completion-notice';
+    const REFERENCE_SOURCE = 'dsh-tip-completion-notice';
     const MODES = ['off', 'popup', 'taskbar', 'both'];
+    const NOTICE_TIMEOUT = 6500;
     const identity = (value) => value;
     const DICTIONARIES = {
       en: {
         heading: 'Answer complete',
-        openHint: 'Click to open this conversation',
         openSession: 'Open the completed conversation',
+        continueLabel: 'Continue this conversation',
+        placeholder: 'Continue…',
+        send: 'Send',
+        sending: 'Sending…',
+        sent: 'Sent',
+        sendFailed: 'Could not send. Your draft was kept.',
+        noRequestPreview: 'No request preview available.',
       },
       zh: {
         heading: '回答已完成',
-        openHint: '点击打开对应会话',
         openSession: '打开已完成的会话',
+        continueLabel: '继续此会话',
+        placeholder: '继续输入…',
+        send: '发送',
+        sending: '发送中…',
+        sent: '已发送',
+        sendFailed: '发送失败，草稿已保留。',
+        noRequestPreview: '暂无请求摘要。',
       },
     };
     const STYLES = `
@@ -42,42 +56,68 @@ window.__ModuleLoader__.load({
         top: 64px;
         left: 50%;
         width: max-content;
-        max-width: min(340px, calc(100vw - 28px));
+        max-width: min(410px, calc(100vw - 28px));
         transform: translateX(-50%);
         pointer-events: none;
       }
-      .dsh-tip-action {
-        display: flex;
-        align-items: center;
-        gap: 12px;
+      .dsh-tip-toast__announcement {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      .dsh-tip-card {
         width: max-content;
+        min-width: 196px;
         max-width: 100%;
-        min-width: 0;
-        min-height: 60px;
-        box-sizing: border-box;
-        padding: 10px 16px 10px 10px;
+        overflow: hidden;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 18px;
-        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 90%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 94%, transparent);
         color: var(--dsw-alias-label-primary);
         box-shadow: 0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
-        font-family: inherit;
-        font-size: 14px;
-        line-height: 1.2;
-        text-align: left;
-        cursor: pointer;
         pointer-events: auto;
-        animation: dsh-tip-toast-life 6500ms linear both;
-        transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
+        animation: dsh-tip-toast-enter 180ms ease-out both;
+        transition: border-color 140ms ease, box-shadow 140ms ease;
       }
-      .dsh-tip-action:hover {
-        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 98%, transparent);
+      .dsh-tip-card--expanded {
+        width: min(410px, calc(100vw - 28px));
+      }
+      .dsh-tip-card:hover {
         border-color: var(--dsw-alias-border-l2);
       }
-      .dsh-tip-action:active { transform: scale(.985); }
-      .dsh-tip-action:focus-visible {
+      .dsh-tip-toast__header {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        width: 100%;
+        min-width: 0;
+        min-height: 56px;
+        box-sizing: border-box;
+        padding: 11px 14px;
+        border: 0;
+        border-radius: 17px;
+        background: transparent;
+        color: inherit;
+        font-family: inherit;
+        font-size: 14px;
+        line-height: 1.25;
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 140ms ease;
+      }
+      .dsh-tip-toast__header:hover {
+        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 98%, transparent);
+      }
+      .dsh-tip-toast__header:active { transform: scale(.99); }
+      .dsh-tip-toast__header:focus-visible {
         outline: 2px solid var(--dsw-alias-brand-primary);
-        outline-offset: 3px;
+        outline-offset: -3px;
       }
       .dsh-tip-toast__icon {
         display: grid;
@@ -96,8 +136,9 @@ window.__ModuleLoader__.load({
         display: flex;
         flex: 1;
         flex-direction: column;
-        gap: 4px;
+        gap: 5px;
         min-width: 0;
+        padding-top: 3px;
       }
       .dsh-tip-toast__title {
         overflow: hidden;
@@ -108,31 +149,109 @@ window.__ModuleLoader__.load({
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .dsh-tip-toast__hint {
+      .dsh-tip-toast__details {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        padding: 0 16px 12px 58px;
+        animation: dsh-tip-details-enter 140ms ease-out both;
+      }
+      .dsh-tip-toast__session-title {
         overflow: hidden;
         color: var(--dsw-alias-label-secondary);
         font-size: 12px;
+        font-weight: 650;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .dsh-tip-toast__arrow {
-        flex: 0 0 auto;
-        color: var(--dsw-alias-brand-primary);
-        font-size: 18px;
-        font-weight: 700;
-        transition: transform 140ms ease;
+      .dsh-tip-toast__prompt {
+        display: -webkit-box;
+        overflow: hidden;
+        margin: 0;
+        color: var(--dsw-alias-label-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
       }
-      .dsh-tip-action:hover .dsh-tip-toast__arrow { transform: translateX(2px); }
+      .dsh-tip-composer {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 0 12px 12px;
+      }
+      .dsh-tip-composer__input {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 40px;
+        max-height: 112px;
+        box-sizing: border-box;
+        resize: vertical;
+        overflow: auto;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 12px;
+        padding: 9px 11px;
+        background: var(--dsw-alias-bg-layer-1);
+        color: var(--dsw-alias-label-primary);
+        font: inherit;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .dsh-tip-composer__input::placeholder {
+        color: var(--dsw-alias-label-secondary);
+      }
+      .dsh-tip-composer__input:focus-visible {
+        border-color: var(--dsw-alias-brand-primary);
+        outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent);
+        outline-offset: 1px;
+      }
+      .dsh-tip-composer__send {
+        flex: 0 0 auto;
+        min-height: 38px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 10px;
+        padding: 0 13px;
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, var(--dsw-alias-bg-layer-1));
+        color: var(--dsw-alias-label-primary);
+        font: inherit;
+        cursor: pointer;
+      }
+      .dsh-tip-composer__send:focus-visible {
+        outline: 2px solid var(--dsw-alias-brand-primary);
+        outline-offset: 2px;
+      }
+      .dsh-tip-composer__send:disabled {
+        cursor: not-allowed;
+        opacity: .55;
+      }
+      .dsh-tip-toast__status {
+        margin: 0;
+        padding: 0 14px 11px 58px;
+        color: var(--dsw-alias-label-secondary);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .dsh-tip-toast__status[data-kind='error'] {
+        color: var(--dsw-alias-state-error-primary);
+      }
+      .dsh-tip-toast__status[data-kind='sent'] {
+        color: var(--dsw-alias-state-success-primary);
+      }
       @keyframes dsh-tip-frame-pulse {
         0%, 100% { opacity: 0; }
         30% { opacity: .9; }
         66% { opacity: .22; }
       }
-      @keyframes dsh-tip-toast-life {
-        0% { opacity: 0; transform: translate3d(0, -10px, 0) scale(.97); }
-        8% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-        88% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-        100% { opacity: 0; transform: translate3d(0, -5px, 0) scale(.985); }
+      @keyframes dsh-tip-toast-enter {
+        from { opacity: 0; transform: translate3d(0, -8px, 0) scale(.98); }
+        to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      }
+      @keyframes dsh-tip-details-enter {
+        from { opacity: 0; transform: translateY(-3px); }
+        to { opacity: 1; transform: translateY(0); }
       }
       @keyframes dsh-tip-check-pop {
         0% { opacity: 0; transform: scale(.55) rotate(-16deg); }
@@ -141,7 +260,7 @@ window.__ModuleLoader__.load({
       }
       @media (prefers-reduced-motion: reduce) {
         .dsh-tip-frame { opacity: .42; animation: none; box-shadow: none; }
-        .dsh-tip-action, .dsh-tip-toast__icon, .dsh-tip-toast__arrow { animation: none; transition: none; }
+        .dsh-tip-card, .dsh-tip-toast__header, .dsh-tip-toast__icon, .dsh-tip-toast__details { animation: none; transition: none; }
       }
     `;
 
@@ -159,9 +278,35 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function boundedSingleLine(value, maxCodePoints) {
+      if (typeof value !== 'string') return null;
+      const normalized = value
+        .replace(/[\r\n\u2028\u2029\t]+/gu, ' ')
+        .replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim();
+      if (!normalized) return null;
+      const points = Array.from(normalized);
+      if (points.length <= maxCodePoints) return normalized;
+      return `${points.slice(0, maxCodePoints - 1).join('')}…`;
+    }
+
+    function boundedPromptPreview(value) {
+      const preview = boundedSingleLine(value, 80);
+      if (preview === null) return null;
+      const points = Array.from(preview);
+      return points.length < 80 ? preview : `${points.slice(0, 79).join('')}…`;
+    }
+
     function normalizeCompletion(summary, marker) {
+      const sessionTitle = boundedSingleLine(summary.displayTitle, 80)
+        ?? boundedSingleLine(summary.title, 80)
+        ?? boundedSingleLine(summary.id, 80)
+        ?? '';
       return {
         sessionId: summary.id,
+        sessionTitle,
+        promptPreview: boundedPromptPreview(marker.fallbackLabel),
         seq: marker.seq,
         completedAt: marker.time,
       };
@@ -186,7 +331,7 @@ window.__ModuleLoader__.load({
       return Object.values(snapshot.byId).filter((summary) => summary && typeof summary.id === 'string');
     }
 
-    function reconcile(previous, snapshot, statuses) {
+    function reconcile(previous, snapshot, statuses, pinned) {
       if (snapshot?.phase !== 'ready') return previous;
       const rows = rowsFrom(snapshot);
       if (previous.seen === null) {
@@ -197,7 +342,7 @@ window.__ModuleLoader__.load({
           if (!projection) continue;
           seen.set(summary.id, projection.completion?.seq ?? null);
         }
-        return { seen, baselineSessions, notice: null };
+        return { seen, baselineSessions, notice: null, pendingNotice: null };
       }
 
       const present = new Set(rows.map((summary) => summary.id));
@@ -238,15 +383,54 @@ window.__ModuleLoader__.load({
         if (popupMode) candidates.push(normalizeCompletion(summary, marker));
       }
 
-      if (!changed && candidates.length === 0) return previous;
+      let notice = previous.notice;
+      let pendingNotice = previous.pendingNotice ?? null;
+      if (candidates.length > 0) {
+        const latest = newestCompletion(candidates);
+        if (pinned && notice !== null) {
+          if (pendingNotice === null || isNewer(latest, pendingNotice)) pendingNotice = latest;
+        } else {
+          notice = latest;
+          pendingNotice = null;
+        }
+      } else if (!pinned && pendingNotice !== null) {
+        notice = pendingNotice;
+        pendingNotice = null;
+      }
+
+      if (!changed
+        && candidates.length === 0
+        && notice === previous.notice
+        && pendingNotice === previous.pendingNotice) return previous;
       return {
         seen,
         baselineSessions: previous.baselineSessions,
-        notice: candidates.length > 0 ? newestCompletion(candidates) : previous.notice,
+        notice,
+        pendingNotice,
       };
     }
 
-    function createCompletionNotice(locale, uiWorkspace) {
+    function advanceNotice(previous, notice) {
+      if (previous.notice !== notice) return previous;
+      return {
+        ...previous,
+        notice: previous.pendingNotice ?? null,
+        pendingNotice: null,
+      };
+    }
+
+    function emptyInteraction(key) {
+      return {
+        key,
+        hovered: false,
+        focused: false,
+        touchExpanded: false,
+        draft: '',
+        submission: { status: 'idle' },
+      };
+    }
+
+    function createCompletionNotice(locale, uiWorkspace, sessionsService) {
       const translate = locale.bind(LOCALE_NAMESPACE);
       const subscribeLocale = (listener) => locale.subscribe(listener);
       const getLocaleSnapshot = () => locale.getSnapshot();
@@ -255,25 +439,135 @@ window.__ModuleLoader__.load({
         React.useSyncExternalStore(subscribeLocale, getLocaleSnapshot, getLocaleSnapshot);
         const sessions = props.useSessions(identity);
         const statuses = props.useSessionStatus(identity);
-        const [noticeState, setNoticeState] = React.useState(() => ({ seen: null, notice: null }));
+        const [noticeState, setNoticeState] = React.useState(() => ({
+          seen: null,
+          baselineSessions: new Set(),
+          notice: null,
+          pendingNotice: null,
+        }));
         const notice = noticeState.notice;
+        const noticeKey = notice === null
+          ? null
+          : JSON.stringify([notice.sessionId, notice.seq, notice.completedAt]);
+        const [interactionState, setInteractionState] = React.useState(() => emptyInteraction(null));
+        const interaction = interactionState.key === noticeKey
+          ? interactionState
+          : emptyInteraction(noticeKey);
+        const updateInteraction = (update) => {
+          setInteractionState((previous) => {
+            const current = previous.key === noticeKey ? previous : emptyInteraction(noticeKey);
+            const next = typeof update === 'function' ? update(current) : update;
+            return { ...next, key: noticeKey };
+          });
+        };
+        const hasDraft = interaction.draft.trim().length > 0;
+        const isSending = interaction.submission.status === 'sending';
+        const pinned = interaction.hovered
+          || interaction.focused
+          || hasDraft
+          || isSending
+          || interaction.submission.status === 'error';
+        const expanded = pinned || interaction.touchExpanded || interaction.submission.status === 'sent';
 
         React.useEffect(() => {
-          setNoticeState((previous) => reconcile(previous, sessions, statuses));
-        }, [sessions, statuses]);
+          setNoticeState((previous) => reconcile(previous, sessions, statuses, pinned));
+        }, [sessions, statuses, pinned]);
 
         React.useEffect(() => {
-          if (notice === null) return undefined;
+          if (notice === null || pinned) return undefined;
           const timer = window.setTimeout(() => {
-            setNoticeState((previous) => previous.notice === notice
-              ? { ...previous, notice: null }
-              : previous);
-          }, 6500);
+            setNoticeState((previous) => advanceNotice(previous, notice));
+          }, NOTICE_TIMEOUT);
           return () => window.clearTimeout(timer);
-        }, [notice]);
+        }, [notice, pinned, interaction.touchExpanded]);
 
         if (notice === null) return null;
+
         const animationKey = `${notice.sessionId}:${notice.seq}:${notice.completedAt}`;
+        let submissionStatus = null;
+        if (interaction.submission.status === 'sending') submissionStatus = translate('sending');
+        else if (interaction.submission.status === 'sent') submissionStatus = translate('sent');
+        else if (interaction.submission.status === 'error') submissionStatus = translate('sendFailed');
+
+        async function submitDraft(event) {
+          event?.preventDefault();
+          const text = interaction.draft;
+          if (!text.trim() || isSending) return;
+
+          updateInteraction((previous) => ({
+            ...previous,
+            submission: { status: 'sending' },
+          }));
+          try {
+            await sessionsService.using(notice.sessionId, { source: REFERENCE_SOURCE }, async (reference) => {
+              const binding = await reference.ready;
+              const session = binding.session;
+              const submission = session.beginSubmission({
+                mode: 'queue',
+                text,
+                attachments: [],
+              });
+              try {
+                const result = await session.prompt(
+                  [{ type: 'text', text }],
+                  'queue',
+                  undefined,
+                  submission.requestId,
+                );
+                if (!result.ok) throw result.error;
+              } catch (error) {
+                submission.abandon();
+                throw error;
+              }
+            });
+            updateInteraction((previous) => ({
+              ...previous,
+              draft: '',
+              submission: { status: 'sent' },
+            }));
+          } catch {
+            updateInteraction((previous) => ({
+              ...previous,
+              submission: { status: 'error' },
+            }));
+          }
+        }
+
+        function handleInputKeyDown(event) {
+          if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.nativeEvent?.isComposing) return;
+          event.preventDefault();
+          return submitDraft();
+        }
+
+        function openSession(event) {
+          const pointerType = event?.nativeEvent?.pointerType ?? event?.pointerType;
+          if (pointerType === 'touch' && !interaction.touchExpanded) {
+            updateInteraction((previous) => ({ ...previous, touchExpanded: true }));
+            return;
+          }
+          uiWorkspace.openSession(notice.sessionId);
+          if (!hasDraft && !isSending) {
+            setNoticeState((previous) => advanceNotice(previous, notice));
+          }
+        }
+
+        function handleCardClick(event) {
+          const target = event.target;
+          if (target?.closest?.('.dsh-tip-composer')) return;
+          if (target?.closest?.('.dsh-tip-toast__header')) return;
+          openSession(event);
+        }
+
+        function leaveCard(event) {
+          const next = event.relatedTarget;
+          if (next && event.currentTarget?.contains?.(next)) return;
+          updateInteraction((previous) => ({
+            ...previous,
+            focused: false,
+            touchExpanded: false,
+          }));
+        }
+
         return h('div', { className: 'dsh-tip-visual-root' },
           h('style', { 'data-dsh-tip-styles': '' }, STYLES),
           h('div', {
@@ -281,36 +575,86 @@ window.__ModuleLoader__.load({
             className: 'dsh-tip-frame',
             'aria-hidden': true,
           }),
-          h('div', {
-            className: 'dsh-tip-toast',
-            role: 'status',
-            'aria-live': 'polite',
-            'aria-atomic': 'true',
-          },
-          h('button', {
-            key: `${animationKey}:action`,
-            type: 'button',
-            className: 'dsh-tip-action',
-            'aria-label': translate('openSession'),
-            onClick() {
-              uiWorkspace.openSession(notice.sessionId);
-              setNoticeState((previous) => previous.notice === notice
-                ? { ...previous, notice: null }
-                : previous);
+          h('div', { className: 'dsh-tip-toast' },
+            h('div', {
+              className: 'dsh-tip-toast__announcement',
+              role: 'status',
+              'aria-live': 'polite',
+              'aria-atomic': 'true',
+            }, translate('heading')),
+            h('div', {
+              key: `${animationKey}:card`,
+              className: `dsh-tip-card${expanded ? ' dsh-tip-card--expanded' : ''}`,
+              onClick: handleCardClick,
+              onMouseEnter() {
+                updateInteraction((previous) => ({ ...previous, hovered: true }));
+              },
+              onMouseLeave() {
+                updateInteraction((previous) => ({ ...previous, hovered: false }));
+              },
+              onFocus() {
+                updateInteraction((previous) => ({ ...previous, focused: true }));
+              },
+              onBlur: leaveCard,
             },
-          },
-          h('span', { className: 'dsh-tip-toast__icon', 'aria-hidden': true }, '✓'),
-          h('span', { className: 'dsh-tip-toast__copy' },
-            h('span', { className: 'dsh-tip-toast__title' }, translate('heading')),
-            h('span', { className: 'dsh-tip-toast__hint' }, translate('openHint'))),
-          h('span', { className: 'dsh-tip-toast__arrow', 'aria-hidden': true }, '→'))));
+            h('button', {
+              key: `${animationKey}:header`,
+              type: 'button',
+              className: 'dsh-tip-toast__header',
+              'aria-label': translate('openSession'),
+              'aria-expanded': expanded,
+              ...(expanded ? { 'aria-controls': 'dsh-tip-expanded-details' } : {}),
+              onClick: openSession,
+            },
+            h('span', { className: 'dsh-tip-toast__icon', 'aria-hidden': true }, '✓'),
+            h('span', { className: 'dsh-tip-toast__copy' },
+              h('span', { className: 'dsh-tip-toast__title' }, translate('heading')))),
+            expanded && h('div', {
+              id: 'dsh-tip-expanded-details',
+              className: 'dsh-tip-toast__details',
+            },
+            h('div', { className: 'dsh-tip-toast__session-title' }, notice.sessionTitle),
+            h('p', { className: 'dsh-tip-toast__prompt' }, notice.promptPreview ?? translate('noRequestPreview'))),
+            expanded && h('form', {
+              className: 'dsh-tip-composer',
+              onSubmit: submitDraft,
+            },
+            h('textarea', {
+              className: 'dsh-tip-composer__input',
+              rows: Math.max(1, Math.min(4, interaction.draft.split('\n').length)),
+              value: interaction.draft,
+              placeholder: translate('placeholder'),
+              'aria-label': translate('continueLabel'),
+              disabled: isSending,
+              onChange(event) {
+                const draft = event.target.value;
+                updateInteraction((previous) => ({
+                  ...previous,
+                  draft,
+                  submission: previous.submission.status === 'error'
+                    ? { status: 'idle' }
+                    : previous.submission,
+                }));
+              },
+              onKeyDown: handleInputKeyDown,
+            }),
+            h('button', {
+              className: 'dsh-tip-composer__send',
+              type: 'submit',
+              disabled: !hasDraft || isSending,
+            }, translate('send'))),
+            submissionStatus !== null && h('p', {
+              className: 'dsh-tip-toast__status',
+              'aria-live': 'polite',
+              'data-kind': interaction.submission.status,
+            }, submissionStatus))));
       }
 
       return CompletionNotice;
     }
 
     return {
-      inject: ['slots', 'locale', 'uiWorkspace'],
+      inject: ['slots', 'locale', 'uiWorkspace', 'sessions'],
       apply(ctx) {
         ctx.effect(
           () => ctx.locale.register(LOCALE_NAMESPACE, DICTIONARIES),
@@ -320,7 +664,7 @@ window.__ModuleLoader__.load({
           name: 'shell.overlay',
           id: 'dsh-tip-completion-notice',
           order: 20,
-        }, createCompletionNotice(ctx.locale, ctx.uiWorkspace)));
+        }, createCompletionNotice(ctx.locale, ctx.uiWorkspace, ctx.sessions)));
       },
     };
   },

@@ -36,8 +36,12 @@ test('bundle has complete runtime exports and files', async () => {
   assert.match(readme, /dsh plugin --profile YOUR_PROFILE add \./u);
   assert.match(readme, /## Modes/u);
   assert.match(readme, /near the top center with a brief DSH-window edge pulse/iu);
-  assert.match(readme, /Click the localized banner to open the session that completed/iu);
-  assert.match(readme, /no session title or prompt preview/iu);
+  assert.match(readme, /Hover or keyboard focus expands it.*sanitized request preview bounded to 80 Unicode code points/iu);
+  assert.match(readme, /text-only follow-up composer.*queued on the completed session/iu);
+  assert.match(readme, /Clicking the heading still opens that session/iu);
+  assert.match(readme, /On touch devices, the first tap expands the card and the next tap opens the session/iu);
+  assert.doesNotMatch(readme, /no session title or prompt preview/iu);
+  assert.doesNotMatch(readme, /Click to open this conversation|点击打开对应会话/u);
   assert.doesNotMatch(readme, /docs\//u);
 });
 
