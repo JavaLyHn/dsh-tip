@@ -35,7 +35,8 @@ test('bundle has complete runtime exports and files', async () => {
   assert.match(readme, /pnpm install --ignore-scripts/u);
   assert.match(readme, /dsh plugin --profile YOUR_PROFILE add \./u);
   assert.match(readme, /## Modes/u);
-  assert.match(readme, /near the top center with a brief DSH-window edge pulse/iu);
+  assert.match(readme, /brief multi-color glow around the DSH-window edge, card, and completion mark/iu);
+  assert.match(readme, /Glow colors follow the active theme tokens.*reduced-motion preferences/iu);
   assert.match(readme, /Hover or keyboard focus expands it.*sanitized request preview bounded to 80 Unicode code points/iu);
   assert.match(readme, /text-only follow-up composer.*queued on the completed session/iu);
   assert.match(readme, /Clicking the heading still opens that session/iu);

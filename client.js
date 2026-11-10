@@ -48,8 +48,13 @@ window.__ModuleLoader__.load({
         opacity: 0;
         box-shadow:
           0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent),
-          0 0 18px color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent);
-        animation: dsh-tip-frame-pulse 1.25s ease-in-out 2 both;
+          0 0 18px color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent),
+          0 0 32px color-mix(in srgb, var(--dsw-alias-state-success-primary) 25%, transparent),
+          0 0 48px color-mix(in srgb, var(--dsw-alias-state-warn-primary) 18%, transparent);
+        filter: saturate(1.08) hue-rotate(0deg);
+        animation:
+          dsh-tip-frame-pulse 1.25s ease-in-out 2 both,
+          dsh-tip-frame-chroma 2.5s ease-in-out 1 both;
       }
       .dsh-tip-toast {
         position: absolute;
@@ -80,9 +85,14 @@ window.__ModuleLoader__.load({
         border-radius: 18px;
         background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 94%, transparent);
         color: var(--dsw-alias-label-primary);
-        box-shadow: 0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+        box-shadow:
+          0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent),
+          0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent),
+          0 0 14px color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
         pointer-events: auto;
-        animation: dsh-tip-toast-enter 180ms ease-out both;
+        animation:
+          dsh-tip-toast-enter 180ms ease-out both,
+          dsh-tip-toast-glow 2.4s ease-in-out 180ms 2;
         transition: border-color 140ms ease, box-shadow 140ms ease;
       }
       .dsh-tip-card--expanded {
@@ -128,9 +138,14 @@ window.__ModuleLoader__.load({
         border-radius: 50%;
         background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
         color: var(--dsw-alias-state-success-primary);
+        box-shadow:
+          0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent),
+          0 0 14px color-mix(in srgb, var(--dsw-alias-state-success-primary) 34%, transparent);
         font-size: 16px;
         font-weight: 700;
-        animation: dsh-tip-check-pop 420ms cubic-bezier(.2, .85, .25, 1.2) both;
+        animation:
+          dsh-tip-check-pop 420ms cubic-bezier(.2, .85, .25, 1.2) both,
+          dsh-tip-check-glow 2.4s ease-in-out 420ms 2;
       }
       .dsh-tip-toast__copy {
         display: flex;
@@ -245,6 +260,26 @@ window.__ModuleLoader__.load({
         30% { opacity: .9; }
         66% { opacity: .22; }
       }
+      @keyframes dsh-tip-frame-chroma {
+        0%, 100% { filter: saturate(1.08) hue-rotate(0deg); }
+        32% { filter: saturate(1.52) hue-rotate(48deg); }
+        68% { filter: saturate(1.4) hue-rotate(108deg); }
+      }
+      @keyframes dsh-tip-toast-glow {
+        0%, 100% {
+          box-shadow:
+            0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent),
+            0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent),
+            0 0 14px color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+        }
+        50% {
+          box-shadow:
+            0 12px 34px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent),
+            0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, transparent),
+            0 0 18px color-mix(in srgb, var(--dsw-alias-state-success-primary) 32%, transparent),
+            0 0 30px color-mix(in srgb, var(--dsw-alias-state-warn-primary) 18%, transparent);
+        }
+      }
       @keyframes dsh-tip-toast-enter {
         from { opacity: 0; transform: translate3d(0, -8px, 0) scale(.98); }
         to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
@@ -258,8 +293,21 @@ window.__ModuleLoader__.load({
         70% { opacity: 1; transform: scale(1.12) rotate(5deg); }
         100% { opacity: 1; transform: scale(1) rotate(0); }
       }
+      @keyframes dsh-tip-check-glow {
+        0%, 100% {
+          box-shadow:
+            0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent),
+            0 0 14px color-mix(in srgb, var(--dsw-alias-state-success-primary) 34%, transparent);
+        }
+        50% {
+          box-shadow:
+            0 0 0 5px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent),
+            0 0 18px color-mix(in srgb, var(--dsw-alias-state-success-primary) 48%, transparent),
+            0 0 28px color-mix(in srgb, var(--dsw-alias-state-warn-primary) 22%, transparent);
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
-        .dsh-tip-frame { opacity: .42; animation: none; box-shadow: none; }
+        .dsh-tip-frame { opacity: .42; animation: none; box-shadow: none; filter: none; }
         .dsh-tip-card, .dsh-tip-toast__header, .dsh-tip-toast__icon, .dsh-tip-toast__details { animation: none; transition: none; }
       }
     `;

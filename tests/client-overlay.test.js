@@ -472,7 +472,7 @@ test('a new session completion after the baseline is announced', async () => {
   }
 });
 
-test('completion cue stays top-centered without a visible navigation hint or arrow', async () => {
+test('completion cue adds theme-colored glow while respecting motion preferences', async () => {
   const harness = await createHarness([]);
   try {
     harness.render();
@@ -502,7 +502,10 @@ test('completion cue stays top-centered without a visible navigation hint or arr
     assert.match(css, /pointer-events:\s*none/u);
     assert.match(css, /pointer-events:\s*auto/u);
     assert.match(css, /dsh-tip-frame-pulse 1\.25s ease-in-out 2/u);
+    assert.match(css, /dsh-tip-frame-chroma 2\.5s ease-in-out/u);
     assert.match(css, /dsh-tip-toast-enter 180ms ease-out/u);
+    assert.match(css, /dsh-tip-toast-glow 2\.4s ease-in-out/u);
+    assert.match(css, /dsh-tip-check-glow 2\.4s ease-in-out/u);
     assert.doesNotMatch(css, /dsh-tip-toast-life|dsh-tip-toast__arrow/u);
     assert.match(css, /-webkit-line-clamp:\s*2/u);
     assert.match(css, /background:\s*color-mix\(in srgb, var\(--dsw-alias-bg-overlay\) 94%, transparent\)/u);
@@ -512,6 +515,9 @@ test('completion cue stays top-centered without a visible navigation hint or arr
     assert.match(css, /--dsw-alias-brand-primary/u);
     assert.match(css, /--dsw-alias-state-error-primary/u);
     assert.match(css, /--dsw-alias-state-success-primary/u);
+    assert.match(css, /--dsw-alias-state-warn-primary/u);
+    assert.match(css, /hue-rotate\(/u);
+    assert.match(css, /filter: none/u);
     assert.doesNotMatch(css, /#[\da-f]{3,8}\b|rgba?\(/iu);
   } finally {
     harness.dispose();
