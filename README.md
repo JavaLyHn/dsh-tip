@@ -8,8 +8,8 @@ The default is `both`.
 
 - `off` disables completion notices.
 - `popup` shows the in-app notice only. It works in Web and Desktop without a Desktop patch.
-- `taskbar` requests only the generic Windows taskbar dot while the DSH window is unfocused; focus clears it. It requires a rebuilt Windows Desktop using the version-pinned patch in [`docs/desktop-integration.md`](docs/desktop-integration.md); on Web, macOS, Linux, or an unpatched Desktop it has no effect.
-- `both` shows the in-app notice and requests the taskbar dot where the patched Windows Desktop supports it. Without that patch, the in-app notice still works.
+- `taskbar` requests a generic Windows taskbar dot while the DSH window is unfocused; focus clears it. It only works when the Windows Desktop build includes the `dsh-taskbar-badge` bridge; otherwise it has no effect.
+- `both` shows the in-app notice and requests the taskbar dot when supported. Without the Desktop bridge, the in-app notice still works.
 
 Only committed successful turn completions trigger a notice; aborted, blocked, failed, token-limited, interrupted, and forked turns are ignored. The in-app notice prefers the session's existing title. If no title is available, it uses a one-line, control-character-free summary of the latest user prompt when available, bounded to 80 Unicode code points; otherwise it shows a localized generic label. That label stays inside DSH; the taskbar IPC carries only its fixed message type and an enabled/disabled boolean, and the icon itself is a generic dot. The plugin does not create an OS toast, play a sound, or send notification content to an external service.
 
@@ -40,6 +40,6 @@ dsh plugin --profile YOUR_PROFILE remove @local/dsh-tip-completion-notice
 
 The taskbar dot is optional; use `popup` if you do not want to rebuild Desktop.
 
-## Desktop patch
+## Taskbar support
 
-The taskbar integration is source-pinned to DSH `dsh-v0.2.2-rc.1`. Read [`docs/desktop-integration.md`](docs/desktop-integration.md) before applying it. The installed DSH build has not been verified against that source tag; do not assume the patch is binary-compatible with an existing installation.
+The optional taskbar dot requires a Windows DSH Desktop build with the `dsh-taskbar-badge` bridge. Installing this bundle alone does not add that Desktop capability. The `popup` mode works without it, and `both` still shows the in-app notice.

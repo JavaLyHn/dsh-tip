@@ -13,7 +13,6 @@ const requiredFiles = [
   'locale/*.json',
   'icon.svg',
   'README.md',
-  'docs/desktop-integration.md',
   'patches/dsh-v0.2.2-rc.1.patch',
 ];
 
@@ -27,9 +26,16 @@ test('bundle has complete runtime exports and files', async () => {
   for (const file of requiredFiles) {
     assert.ok(manifest.files.includes(file), `package files must include ${file}`);
   }
-  for (const file of ['../README.md', '../docs/desktop-integration.md', '../patches/dsh-v0.2.2-rc.1.patch']) {
+  assert.ok(!manifest.files.some((file) => file.startsWith('docs/')), 'internal process docs must not be packaged');
+  for (const file of ['../README.md', '../patches/dsh-v0.2.2-rc.1.patch']) {
     assert.ok((await readText(file)).length > 0, `${file} must exist and be non-empty`);
   }
+
+  const readme = await readText('../README.md');
+  assert.match(readme, /pnpm install --ignore-scripts/u);
+  assert.match(readme, /dsh plugin --profile YOUR_PROFILE add \./u);
+  assert.match(readme, /## Modes/u);
+  assert.doesNotMatch(readme, /docs\//u);
 });
 
 test('metadata, defaults, and dependencies match the package contract', async () => {
