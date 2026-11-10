@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "回答完成提醒",
-    "description": "智能体完成回答时显示本地应用内提示。"
+    "title": "dsh-tip",
+    "description": "智能体成功完成一轮后显示本地应用内提示；兼容的 Windows Desktop 版本还可显示任务栏小点。"
   }
 }

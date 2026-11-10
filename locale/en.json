@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Answer completion notice",
-    "description": "Shows a local in-app notice when an agent turn completes."
+    "title": "dsh-tip",
+    "description": "Shows a local in-app notice when an agent turn completes. Compatible Windows Desktop builds may also show a taskbar dot."
   }
 }

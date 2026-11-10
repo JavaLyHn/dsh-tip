@@ -56,10 +56,10 @@ test('metadata, defaults, and dependencies match the package contract', async ()
 
   const english = await readJson('../locale/en.json');
   const chinese = await readJson('../locale/zh.json');
-  assert.equal(english.meta.title, 'Answer completion notice');
-  assert.ok(english.meta.description.length > 0);
-  assert.equal(chinese.meta.title, '回答完成提醒');
-  assert.ok(chinese.meta.description.length > 0);
+  assert.equal(english.meta.title, 'dsh-tip');
+  assert.equal(english.meta.description, 'Shows a local in-app notice when an agent turn completes. Compatible Windows Desktop builds may also show a taskbar dot.');
+  assert.equal(chinese.meta.title, 'dsh-tip');
+  assert.equal(chinese.meta.description, '智能体成功完成一轮后显示本地应用内提示；兼容的 Windows Desktop 版本还可显示任务栏小点。');
   assert.ok(manifest.files.includes('locale/*.json'));
   assert.ok(manifest.exports['./locale/*.json']);
   assert.ok(manifest.files.includes('icon.svg'));
