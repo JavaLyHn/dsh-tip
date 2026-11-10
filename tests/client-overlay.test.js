@@ -336,8 +336,16 @@ function statusNode(harness) {
   return findAll(harness.tree, (node) => node.props?.role === 'status')[0] ?? null;
 }
 
-function closeButton(harness) {
-  return findAll(harness.tree, (node) => node.type === 'button')[0] ?? null;
+function toastNode(harness) {
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-toast')[0] ?? null;
+}
+
+function frameNode(harness) {
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-frame')[0] ?? null;
+}
+
+function styleNode(harness) {
+  return findAll(harness.tree, (node) => node.type === 'style')[0] ?? null;
 }
 
 test('initial snapshot does not replay', async () => {
@@ -392,13 +400,14 @@ test('a new session completion after the baseline is announced', async () => {
 
     const row = summary('session-new', 'popup', completion(1, 100, 'Fresh prompt'), 'New session');
     harness.setSnapshot([row]);
-    assert.match(textContent(harness.tree), /New session/u);
+    assert.match(textContent(statusNode(harness)), /Answer complete/u);
+    assert.doesNotMatch(textContent(statusNode(harness)), /New session|Fresh prompt/u);
   } finally {
     harness.dispose();
   }
 });
 
-test('toast clears the Windows window-control corner and uses a stronger surface', async () => {
+test('completion cue is compact, click-through, animated, and motion-aware', async () => {
   const harness = await createHarness([]);
   try {
     harness.render();
@@ -406,12 +415,24 @@ test('toast clears the Windows window-control corner and uses a stronger surface
       summary('session-new', 'popup', completion(1, 100, 'Fresh prompt'), 'New session'),
     ]);
 
-    const style = statusNode(harness)?.props.style;
-    assert.ok(style, 'completion toast is missing');
-    assert.equal(style.top, '64px');
-    assert.equal(style.borderLeft, '4px solid var(--dsw-alias-state-success-primary)');
-    assert.equal(style.background, 'var(--dsw-alias-bg-layer-1)');
-    assert.equal(style.fontSize, '15px');
+    const toast = toastNode(harness);
+    assert.ok(toast, 'completion toast is missing');
+    assert.equal(toast.props.role, 'status');
+    assert.equal(toast.props['aria-live'], 'polite');
+    assert.equal(toast.props.className, 'dsh-tip-toast');
+    assert.equal(frameNode(harness)?.props?.['aria-hidden'], true);
+
+    const css = textContent(styleNode(harness));
+    assert.match(css, /bottom:\s*16px/u);
+    assert.match(css, /max-width:\s*min\(224px, calc\(100vw - 24px\)\)/u);
+    assert.match(css, /pointer-events:\s*none/u);
+    assert.match(css, /dsh-tip-frame-pulse 1\.25s ease-in-out 2/u);
+    assert.match(css, /dsh-tip-toast-life 5200ms/u);
+    assert.match(css, /background:\s*color-mix\(in srgb, var\(--dsw-alias-bg-overlay\) 84%, transparent\)/u);
+    assert.doesNotMatch(css, /backdrop-filter/u);
+    assert.match(css, /@media \(prefers-reduced-motion: reduce\)/u);
+    assert.match(css, /--dsw-alias-brand-primary/u);
+    assert.doesNotMatch(css, /#[\da-f]{3,8}\b|rgba?\(/iu);
   } finally {
     harness.dispose();
   }
@@ -450,54 +471,28 @@ test('a changed completion waits for its session status snapshot', async () => {
   }
 });
 
-test('title precedes fallback', async () => {
+test('completion notice does not reveal session titles or prompt previews', async () => {
   const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier prompt'), 'Earlier title');
   const harness = await createHarness([initial]);
   try {
     assertOverlay(harness);
     harness.render();
-    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Prompt fallback'), 'Chosen session title')]);
-    assert.match(textContent(harness.tree), /Chosen session title/u);
-    assert.doesNotMatch(textContent(harness.tree), /Prompt fallback/u);
+    const hostileTitle = `Private project\r\nnotes\t\u0000${'🧭'.repeat(100)}`;
+    const sensitivePrompt = `Sensitive prompt\r\nbody\t\u0000${'🗝️'.repeat(100)}`;
+    harness.setSnapshot([
+      summary('session-a', 'popup', completion(2, 200, sensitivePrompt), hostileTitle),
+    ]);
 
-    harness.setSnapshot([summary('session-a', 'popup', completion(3, 300, 'Newest prompt fallback'), '')]);
-    assert.match(textContent(harness.tree), /Newest prompt fallback/u);
-    assert.doesNotMatch(textContent(harness.tree), /Chosen session title/u);
+    const visible = textContent(statusNode(harness));
+    assert.equal(visible, '✓Answer complete');
+    assert.doesNotMatch(visible, /Private project|Sensitive prompt|session-a/u);
+    assert.equal(findAll(statusNode(harness), (node) => node.type === 'button').length, 0);
   } finally {
     harness.dispose();
   }
 });
 
-test('title and fallback labels stay bounded and control-free', async () => {
-  const initial = summary('session-a', 'popup', completion(1, 100, 'Earlier task'), 'Earlier title');
-  const harness = await createHarness([initial]);
-  try {
-    assertOverlay(harness);
-    harness.render();
-    const hostileTitle = `  Project\r\nnotes\t\u0000${'🧭'.repeat(100)}  `;
-    harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Ignored fallback'), hostileTitle)]);
-    let label = findAll(harness.tree, (node) => node.props?.style?.overflowWrap === 'anywhere')[0];
-    let visible = textContent(label);
-    assert.equal(Array.from(visible).length, 80);
-    assert.equal(/[\r\n\u0000-\u001f\u007f-\u009f]/u.test(visible), false);
-    assert.ok(visible.startsWith('Project notes'));
-    assert.equal(visible.includes('Ignored fallback'), false);
-    assert.equal(visible.includes('session-a'), false);
-
-    const hostileFallback = `Fallback\r\nsummary\t\u0000${'🧭'.repeat(100)}`;
-    harness.setSnapshot([summary('session-a', 'popup', completion(3, 300, hostileFallback), '')]);
-    label = findAll(harness.tree, (node) => node.props?.style?.overflowWrap === 'anywhere')[0];
-    visible = textContent(label);
-    assert.equal(Array.from(visible).length, 80);
-    assert.equal(/[\r\n\u0000-\u001f\u007f-\u009f]/u.test(visible), false);
-    assert.ok(visible.startsWith('Fallback summary'));
-    assert.equal(visible.includes('session-a'), false);
-  } finally {
-    harness.dispose();
-  }
-});
-
-test('new sequence replaces and simultaneous completions yield one newest toast', async () => {
+test('a newer simultaneous completion restarts one newest visual cue', async () => {
   const initial = [
     summary('session-a', 'both', completion(1, 100, 'Task A'), 'Task A title'),
     summary('session-b', 'both', completion(1, 110, 'Task B'), 'Task B title'),
@@ -510,21 +505,25 @@ test('new sequence replaces and simultaneous completions yield one newest toast'
       summary('session-a', 'both', completion(2, 200, 'Task A newest'), 'Task A title'),
       summary('session-b', 'both', completion(1, 110, 'Task B'), 'Task B title'),
     ]);
-    assert.match(textContent(harness.tree), /Task A title/u);
+    const firstToast = toastNode(harness);
+    assert.ok(firstToast);
+    assert.equal(firstToast.props.key, 'session-a:2:200:toast');
 
     harness.setSnapshot([
       summary('session-a', 'both', completion(3, 300, 'Task A final'), 'Task A title'),
       summary('session-b', 'both', completion(2, 400, 'Task B newest'), 'Task B title'),
     ]);
+    const newestToast = toastNode(harness);
     assert.equal(findAll(harness.tree, (node) => node.props?.role === 'status').length, 1);
-    assert.match(textContent(harness.tree), /Task B title/u);
-    assert.doesNotMatch(textContent(harness.tree), /Task A title/u);
+    assert.equal(newestToast?.props?.key, 'session-b:2:400:toast');
+    assert.notEqual(newestToast?.props?.key, firstToast.props.key);
+    assert.equal(textContent(newestToast), '✓Answer complete');
   } finally {
     harness.dispose();
   }
 });
 
-test('close and 4_000ms timeout dismiss', async () => {
+test('notice auto-dismisses after 5_200ms and unmount clears its timer', async () => {
   const initial = summary('session-a', 'popup', completion(1, 100, 'Task'), 'Task title');
   const harness = await createHarness([initial]);
   try {
@@ -532,29 +531,22 @@ test('close and 4_000ms timeout dismiss', async () => {
     harness.render();
     harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Task'), 'Task title')]);
     assert.ok(statusNode(harness));
-    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [4000]);
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [5200]);
 
-    closeButton(harness).props.onClick();
-    harness.render();
+    harness.runNextTimer();
     assert.equal(statusNode(harness), null);
     assert.equal(harness.timers.size, 0);
 
     harness.setSnapshot([summary('session-a', 'popup', completion(3, 300, 'Task'), 'Task title')]);
     assert.ok(statusNode(harness));
-    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [4000]);
-    harness.runNextTimer();
-    assert.equal(statusNode(harness), null);
-    assert.equal(harness.timers.size, 0);
-
-    harness.setSnapshot([summary('session-a', 'popup', completion(4, 400, 'Task'), 'Task title')]);
-    assert.equal(harness.timers.size, 1);
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [5200]);
   } finally {
     harness.dispose();
   }
   assert.equal(harness.timers.size, 0, 'unmount must clear the notice timer');
 });
 
-test('copy is localized and accessible', async () => {
+test('copy is localized, non-disruptive, and accessible', async () => {
   const initial = summary('session-a', 'popup', completion(1, 100, 'Task'), 'Localized task');
   const harness = await createHarness([initial]);
   try {
@@ -568,17 +560,16 @@ test('copy is localized and accessible', async () => {
     let status = statusNode(harness);
     assert.equal(status?.props?.['aria-live'], 'polite');
     assert.equal(status?.props?.['aria-atomic'], 'true');
-    assert.match(textContent(status), /Answer complete/u);
-    assert.match(textContent(status), /Localized task/u);
-    assert.equal(closeButton(harness)?.props?.['aria-label'], 'Dismiss notification');
+    assert.equal(textContent(status), '✓Answer complete');
+    assert.doesNotMatch(textContent(status), /Localized task|Task/u);
+    assert.equal(findAll(status, (node) => node.type === 'button').length, 0);
     assert.equal(findAll(harness.tree, (node) => Object.hasOwn(node.props ?? {}, 'autoFocus')).length, 0);
     assert.equal(harness.focusCalls, 0);
 
     harness.locale.setLocale('zh');
     harness.render();
     status = statusNode(harness);
-    assert.match(textContent(status), /回答已完成/u);
-    assert.equal(closeButton(harness)?.props?.['aria-label'], '关闭提醒');
+    assert.equal(textContent(status), '✓回答已完成');
     assert.equal(harness.focusCalls, 0);
   } finally {
     harness.dispose();

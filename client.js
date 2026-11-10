@@ -8,29 +8,92 @@ window.__ModuleLoader__.load({
     const MODES = ['off', 'popup', 'taskbar', 'both'];
     const identity = (value) => value;
     const DICTIONARIES = {
-      en: {
-        heading: 'Answer complete',
-        unnamedTask: 'Completed task',
-        dismiss: 'Dismiss notification',
-      },
-      zh: {
-        heading: '回答已完成',
-        unnamedTask: '已完成任务',
-        dismiss: '关闭提醒',
-      },
+      en: { heading: 'Answer complete' },
+      zh: { heading: '回答已完成' },
     };
-
-    function sanitizeLabel(value) {
-      if (typeof value !== 'string') return '';
-      return Array.from(value
-        .replace(/[\r\n\u2028\u2029]+/gu, ' ')
-        .replace(/[\t\v\f]/gu, ' ')
-        .replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/gu, '')
-        .replace(/\s+/gu, ' ')
-        .trim())
-        .slice(0, 80)
-        .join('');
-    }
+    const STYLES = `
+      .dsh-tip-visual-root {
+        position: fixed;
+        inset: 0;
+        z-index: 1200;
+        pointer-events: none;
+      }
+      .dsh-tip-frame {
+        position: absolute;
+        inset: 8px;
+        border: 1px solid var(--dsw-alias-brand-primary);
+        border-radius: 12px;
+        opacity: 0;
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent),
+          0 0 18px color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent);
+        animation: dsh-tip-frame-pulse 1.25s ease-in-out 2 both;
+      }
+      .dsh-tip-toast {
+        position: absolute;
+        right: 16px;
+        bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: max-content;
+        max-width: min(224px, calc(100vw - 24px));
+        min-height: 44px;
+        box-sizing: border-box;
+        padding: 8px 14px 8px 9px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 84%, transparent);
+        color: var(--dsw-alias-label-primary);
+        box-shadow: 0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+        font-family: inherit;
+        font-size: 14px;
+        line-height: 1.2;
+        pointer-events: none;
+        animation: dsh-tip-toast-life 5200ms linear both;
+      }
+      .dsh-tip-toast__icon {
+        display: grid;
+        flex: 0 0 28px;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
+        color: var(--dsw-alias-state-success-primary);
+        font-size: 15px;
+        font-weight: 700;
+        animation: dsh-tip-check-pop 420ms cubic-bezier(.2, .85, .25, 1.2) both;
+      }
+      .dsh-tip-toast__text {
+        overflow: hidden;
+        color: var(--dsw-alias-label-primary);
+        font-weight: 650;
+        letter-spacing: .01em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      @keyframes dsh-tip-frame-pulse {
+        0%, 100% { opacity: 0; }
+        30% { opacity: .9; }
+        66% { opacity: .22; }
+      }
+      @keyframes dsh-tip-toast-life {
+        0% { opacity: 0; transform: translate3d(0, 10px, 0) scale(.97); }
+        8% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+        88% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+        100% { opacity: 0; transform: translate3d(0, 5px, 0) scale(.985); }
+      }
+      @keyframes dsh-tip-check-pop {
+        0% { opacity: 0; transform: scale(.55) rotate(-16deg); }
+        70% { opacity: 1; transform: scale(1.12) rotate(5deg); }
+        100% { opacity: 1; transform: scale(1) rotate(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .dsh-tip-frame { opacity: .42; animation: none; box-shadow: none; }
+        .dsh-tip-toast, .dsh-tip-toast__icon { animation: none; }
+      }
+    `;
 
     function readProjection(summary) {
       const projection = summary?.projectionValues?.[PROJECTION_KEY];
@@ -51,8 +114,6 @@ window.__ModuleLoader__.load({
         sessionId: summary.id,
         seq: marker.seq,
         completedAt: marker.time,
-        title: sanitizeLabel(summary.title),
-        fallbackLabel: sanitizeLabel(marker.fallbackLabel),
       };
     }
 
@@ -157,71 +218,28 @@ window.__ModuleLoader__.load({
             setNoticeState((previous) => previous.notice === notice
               ? { ...previous, notice: null }
               : previous);
-          }, 4000);
+          }, 5200);
           return () => window.clearTimeout(timer);
         }, [notice]);
 
         if (notice === null) return null;
-        const label = notice.title || notice.fallbackLabel || translate('unnamedTask');
-        return h('div', {
-          role: 'status',
-          'aria-live': 'polite',
-          'aria-atomic': 'true',
-          style: {
-            position: 'fixed',
-            top: '64px',
-            right: '16px',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            width: 'max-content',
-            maxWidth: 'min(420px, calc(100vw - 32px))',
-            padding: '14px 16px',
-            border: '1px solid var(--dsw-alias-border-l2)',
-            borderLeft: '4px solid var(--dsw-alias-state-success-primary)',
-            borderRadius: '12px',
-            background: 'var(--dsw-alias-bg-layer-1)',
-            color: 'var(--dsw-alias-label-primary)',
-            fontFamily: 'inherit',
-            fontSize: '15px',
-            lineHeight: 1.45,
-            pointerEvents: 'auto',
+        const animationKey = `${notice.sessionId}:${notice.seq}:${notice.completedAt}`;
+        return h('div', { className: 'dsh-tip-visual-root' },
+          h('style', { 'data-dsh-tip-styles': '' }, STYLES),
+          h('div', {
+            key: `${animationKey}:frame`,
+            className: 'dsh-tip-frame',
+            'aria-hidden': true,
+          }),
+          h('div', {
+            key: `${animationKey}:toast`,
+            className: 'dsh-tip-toast',
+            role: 'status',
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
           },
-        },
-        h('span', {
-          'aria-hidden': true,
-          style: {
-            color: 'var(--dsw-alias-state-success-primary)',
-            fontSize: '18px',
-            fontWeight: 700,
-            lineHeight: 1,
-            marginTop: '1px',
-          },
-        }, '✓'),
-        h('div', { style: { minWidth: 0, flex: 1 } },
-          h('div', { style: { fontWeight: 700, marginBottom: '3px' } }, translate('heading')),
-          h('div', { style: { overflowWrap: 'anywhere' } }, label)),
-        h('button', {
-          type: 'button',
-          'aria-label': translate('dismiss'),
-          onClick() {
-            setNoticeState((previous) => previous.notice === notice
-              ? { ...previous, notice: null }
-              : previous);
-          },
-          style: {
-            flex: 'none',
-            padding: 0,
-            border: 0,
-            background: 'transparent',
-            color: 'var(--dsw-alias-label-secondary)',
-            font: 'inherit',
-            fontSize: '18px',
-            lineHeight: 1,
-            cursor: 'pointer',
-          },
-        }, h('span', { 'aria-hidden': true }, '×')));
+          h('span', { className: 'dsh-tip-toast__icon', 'aria-hidden': true }, '✓'),
+          h('span', { className: 'dsh-tip-toast__text' }, translate('heading'))));
       }
 
       return CompletionNotice;
