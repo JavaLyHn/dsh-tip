@@ -35,6 +35,9 @@ test('bundle has complete runtime exports and files', async () => {
   assert.match(readme, /pnpm install --ignore-scripts/u);
   assert.match(readme, /dsh plugin --profile YOUR_PROFILE add \./u);
   assert.match(readme, /## Modes/u);
+  assert.match(readme, /near the top center with a brief DSH-window edge pulse/iu);
+  assert.match(readme, /Click the localized banner to open the session that completed/iu);
+  assert.match(readme, /no session title or prompt preview/iu);
   assert.doesNotMatch(readme, /docs\//u);
 });
 

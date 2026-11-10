@@ -187,6 +187,7 @@ async function createHarness(initialRows, initialPhase = 'ready') {
   const dictionaries = new Map();
   const registrations = [];
   const contextCleanups = [];
+  const navigationCalls = [];
   let localeSnapshot = { active: 'en', revision: 0 };
   let slotName;
   let slotRegistration;
@@ -249,8 +250,14 @@ async function createHarness(initialRows, initialPhase = 'ready') {
     assert.equal(name, 'react', `unexpected Client runtime import: ${name}`);
     return React;
   });
+  const uiWorkspace = {
+    openSession(target) {
+      navigationCalls.push(target);
+    },
+  };
   const ctx = {
     locale,
+    uiWorkspace,
     effect(effect) {
       const cleanup = effect();
       if (typeof cleanup === 'function') contextCleanups.push(cleanup);
@@ -290,9 +297,11 @@ async function createHarness(initialRows, initialPhase = 'ready') {
     get component() { return component; },
     get slotName() { return slotName; },
     get registration() { return slotRegistration; },
+    get injects() { return plugin.inject; },
     get tree() { return renderer?.render() ?? null; },
     timers,
     registrations,
+    navigationCalls,
     locale,
     get focusCalls() { return focusCalls; },
     render() { return renderer?.render() ?? null; },
@@ -330,6 +339,7 @@ function assertOverlay(harness) {
   assert.equal(harness.slotName, 'shell.overlay', 'toast is not registered in the global overlay');
   assert.equal(typeof harness.component, 'function', 'overlay component is missing');
   assert.equal(harness.registration?.id, 'dsh-tip-completion-notice');
+  assert.ok(harness.injects.includes('uiWorkspace'), 'session navigation service is not injected');
 }
 
 function statusNode(harness) {
@@ -338,6 +348,10 @@ function statusNode(harness) {
 
 function toastNode(harness) {
   return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-toast')[0] ?? null;
+}
+
+function actionButtonNode(harness) {
+  return findAll(harness.tree, (node) => node.props?.className === 'dsh-tip-action')[0] ?? null;
 }
 
 function frameNode(harness) {
@@ -407,7 +421,7 @@ test('a new session completion after the baseline is announced', async () => {
   }
 });
 
-test('completion cue is compact, click-through, animated, and motion-aware', async () => {
+test('completion cue is centered, actionable, animated, and motion-aware', async () => {
   const harness = await createHarness([]);
   try {
     harness.render();
@@ -416,23 +430,60 @@ test('completion cue is compact, click-through, animated, and motion-aware', asy
     ]);
 
     const toast = toastNode(harness);
+    const button = actionButtonNode(harness);
     assert.ok(toast, 'completion toast is missing');
+    assert.ok(button, 'completion action button is missing');
     assert.equal(toast.props.role, 'status');
     assert.equal(toast.props['aria-live'], 'polite');
-    assert.equal(toast.props.className, 'dsh-tip-toast');
+    assert.equal(button.type, 'button');
+    assert.equal(button.props['aria-label'], 'Open the completed conversation');
+    assert.match(textContent(button), /Click to open this conversation/u);
     assert.equal(frameNode(harness)?.props?.['aria-hidden'], true);
 
     const css = textContent(styleNode(harness));
-    assert.match(css, /bottom:\s*16px/u);
-    assert.match(css, /max-width:\s*min\(224px, calc\(100vw - 24px\)\)/u);
+    assert.match(css, /top:\s*64px/u);
+    assert.match(css, /left:\s*50%/u);
+    assert.match(css, /transform:\s*translateX\(-50%\)/u);
+    assert.match(css, /max-width:\s*min\(340px, calc\(100vw - 28px\)\)/u);
     assert.match(css, /pointer-events:\s*none/u);
+    assert.match(css, /pointer-events:\s*auto/u);
     assert.match(css, /dsh-tip-frame-pulse 1\.25s ease-in-out 2/u);
-    assert.match(css, /dsh-tip-toast-life 5200ms/u);
-    assert.match(css, /background:\s*color-mix\(in srgb, var\(--dsw-alias-bg-overlay\) 84%, transparent\)/u);
+    assert.match(css, /dsh-tip-toast-life 6500ms/u);
+    assert.match(css, /background:\s*color-mix\(in srgb, var\(--dsw-alias-bg-overlay\) 90%, transparent\)/u);
     assert.doesNotMatch(css, /backdrop-filter/u);
+    assert.match(css, /:focus-visible/u);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/u);
     assert.match(css, /--dsw-alias-brand-primary/u);
     assert.doesNotMatch(css, /#[\da-f]{3,8}\b|rgba?\(/iu);
+  } finally {
+    harness.dispose();
+  }
+});
+
+test('clicking the notice opens its completed session and dismisses the cue', async () => {
+  const initial = [
+    summary('session-a', 'popup', completion(1, 100, 'Old A'), 'Session A'),
+    summary('session-b', 'popup', completion(1, 110, 'Old B'), 'Session B'),
+  ];
+  const harness = await createHarness(initial);
+  try {
+    assertOverlay(harness);
+    harness.render();
+    harness.setSnapshot([
+      summary('session-a', 'popup', completion(2, 200, 'New A'), 'Session A'),
+      summary('session-b', 'popup', completion(1, 110, 'Old B'), 'Session B'),
+    ]);
+
+    const button = actionButtonNode(harness);
+    assert.ok(button);
+    assert.equal(button.props.type, 'button');
+    button.props.onClick();
+    assert.deepEqual(harness.navigationCalls, ['session-a']);
+
+    harness.render();
+    assert.equal(statusNode(harness), null);
+    assert.equal(harness.timers.size, 0);
+    assert.equal(harness.focusCalls, 0, 'navigation must not steal focus before user activation');
   } finally {
     harness.dispose();
   }
@@ -484,9 +535,10 @@ test('completion notice does not reveal session titles or prompt previews', asyn
     ]);
 
     const visible = textContent(statusNode(harness));
-    assert.equal(visible, '✓Answer complete');
+    assert.match(visible, /Answer complete/u);
+    assert.match(visible, /Click to open this conversation/u);
     assert.doesNotMatch(visible, /Private project|Sensitive prompt|session-a/u);
-    assert.equal(findAll(statusNode(harness), (node) => node.type === 'button').length, 0);
+    assert.equal(findAll(statusNode(harness), (node) => node.type === 'button').length, 1);
   } finally {
     harness.dispose();
   }
@@ -505,25 +557,26 @@ test('a newer simultaneous completion restarts one newest visual cue', async () 
       summary('session-a', 'both', completion(2, 200, 'Task A newest'), 'Task A title'),
       summary('session-b', 'both', completion(1, 110, 'Task B'), 'Task B title'),
     ]);
-    const firstToast = toastNode(harness);
+    const firstToast = actionButtonNode(harness);
     assert.ok(firstToast);
-    assert.equal(firstToast.props.key, 'session-a:2:200:toast');
+    assert.equal(firstToast.props.key, 'session-a:2:200:action');
 
     harness.setSnapshot([
       summary('session-a', 'both', completion(3, 300, 'Task A final'), 'Task A title'),
       summary('session-b', 'both', completion(2, 400, 'Task B newest'), 'Task B title'),
     ]);
-    const newestToast = toastNode(harness);
+    const newestToast = actionButtonNode(harness);
     assert.equal(findAll(harness.tree, (node) => node.props?.role === 'status').length, 1);
-    assert.equal(newestToast?.props?.key, 'session-b:2:400:toast');
+    assert.equal(newestToast?.props?.key, 'session-b:2:400:action');
     assert.notEqual(newestToast?.props?.key, firstToast.props.key);
-    assert.equal(textContent(newestToast), '✓Answer complete');
+    assert.match(textContent(newestToast), /Answer complete/u);
+    assert.match(textContent(newestToast), /Click to open this conversation/u);
   } finally {
     harness.dispose();
   }
 });
 
-test('notice auto-dismisses after 5_200ms and unmount clears its timer', async () => {
+test('notice auto-dismisses after 6_500ms and unmount clears its timer', async () => {
   const initial = summary('session-a', 'popup', completion(1, 100, 'Task'), 'Task title');
   const harness = await createHarness([initial]);
   try {
@@ -531,7 +584,7 @@ test('notice auto-dismisses after 5_200ms and unmount clears its timer', async (
     harness.render();
     harness.setSnapshot([summary('session-a', 'popup', completion(2, 200, 'Task'), 'Task title')]);
     assert.ok(statusNode(harness));
-    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [5200]);
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [6500]);
 
     harness.runNextTimer();
     assert.equal(statusNode(harness), null);
@@ -539,14 +592,14 @@ test('notice auto-dismisses after 5_200ms and unmount clears its timer', async (
 
     harness.setSnapshot([summary('session-a', 'popup', completion(3, 300, 'Task'), 'Task title')]);
     assert.ok(statusNode(harness));
-    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [5200]);
+    assert.deepEqual([...harness.timers.values()].map((timer) => timer.delay), [6500]);
   } finally {
     harness.dispose();
   }
   assert.equal(harness.timers.size, 0, 'unmount must clear the notice timer');
 });
 
-test('copy is localized, non-disruptive, and accessible', async () => {
+test('copy is localized, actionable, and accessible', async () => {
   const initial = summary('session-a', 'popup', completion(1, 100, 'Task'), 'Localized task');
   const harness = await createHarness([initial]);
   try {
@@ -558,18 +611,24 @@ test('copy is localized, non-disruptive, and accessible', async () => {
     assert.ok(harness.registrations[0]?.values?.zh);
 
     let status = statusNode(harness);
+    let button = actionButtonNode(harness);
     assert.equal(status?.props?.['aria-live'], 'polite');
     assert.equal(status?.props?.['aria-atomic'], 'true');
-    assert.equal(textContent(status), '✓Answer complete');
+    assert.match(textContent(status), /Answer complete/u);
+    assert.match(textContent(status), /Click to open this conversation/u);
     assert.doesNotMatch(textContent(status), /Localized task|Task/u);
-    assert.equal(findAll(status, (node) => node.type === 'button').length, 0);
+    assert.equal(button?.type, 'button');
+    assert.equal(button?.props?.['aria-label'], 'Open the completed conversation');
     assert.equal(findAll(harness.tree, (node) => Object.hasOwn(node.props ?? {}, 'autoFocus')).length, 0);
     assert.equal(harness.focusCalls, 0);
 
     harness.locale.setLocale('zh');
     harness.render();
     status = statusNode(harness);
-    assert.equal(textContent(status), '✓回答已完成');
+    button = actionButtonNode(harness);
+    assert.match(textContent(status), /回答已完成/u);
+    assert.match(textContent(status), /点击打开对应会话/u);
+    assert.equal(button?.props?.['aria-label'], '打开已完成的会话');
     assert.equal(harness.focusCalls, 0);
   } finally {
     harness.dispose();

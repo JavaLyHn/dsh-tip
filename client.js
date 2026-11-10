@@ -8,8 +8,16 @@ window.__ModuleLoader__.load({
     const MODES = ['off', 'popup', 'taskbar', 'both'];
     const identity = (value) => value;
     const DICTIONARIES = {
-      en: { heading: 'Answer complete' },
-      zh: { heading: '回答已完成' },
+      en: {
+        heading: 'Answer complete',
+        openHint: 'Click to open this conversation',
+        openSession: 'Open the completed conversation',
+      },
+      zh: {
+        heading: '回答已完成',
+        openHint: '点击打开对应会话',
+        openSession: '打开已完成的会话',
+      },
     };
     const STYLES = `
       .dsh-tip-visual-root {
@@ -31,58 +39,100 @@ window.__ModuleLoader__.load({
       }
       .dsh-tip-toast {
         position: absolute;
-        right: 16px;
-        bottom: 16px;
+        top: 64px;
+        left: 50%;
+        width: max-content;
+        max-width: min(340px, calc(100vw - 28px));
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+      .dsh-tip-action {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
         width: max-content;
-        max-width: min(224px, calc(100vw - 24px));
-        min-height: 44px;
+        max-width: 100%;
+        min-width: 0;
+        min-height: 60px;
         box-sizing: border-box;
-        padding: 8px 14px 8px 9px;
+        padding: 10px 16px 10px 10px;
         border: 1px solid var(--dsw-alias-border-l1);
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 84%, transparent);
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 90%, transparent);
         color: var(--dsw-alias-label-primary);
-        box-shadow: 0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+        box-shadow: 0 10px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
         font-family: inherit;
         font-size: 14px;
         line-height: 1.2;
-        pointer-events: none;
-        animation: dsh-tip-toast-life 5200ms linear both;
+        text-align: left;
+        cursor: pointer;
+        pointer-events: auto;
+        animation: dsh-tip-toast-life 6500ms linear both;
+        transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
+      }
+      .dsh-tip-action:hover {
+        background: color-mix(in srgb, var(--dsw-alias-bg-overlay) 98%, transparent);
+        border-color: var(--dsw-alias-border-l2);
+      }
+      .dsh-tip-action:active { transform: scale(.985); }
+      .dsh-tip-action:focus-visible {
+        outline: 2px solid var(--dsw-alias-brand-primary);
+        outline-offset: 3px;
       }
       .dsh-tip-toast__icon {
         display: grid;
-        flex: 0 0 28px;
+        flex: 0 0 32px;
         place-items: center;
-        width: 28px;
-        height: 28px;
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, var(--dsw-alias-bg-layer-1));
         color: var(--dsw-alias-state-success-primary);
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 700;
         animation: dsh-tip-check-pop 420ms cubic-bezier(.2, .85, .25, 1.2) both;
       }
-      .dsh-tip-toast__text {
+      .dsh-tip-toast__copy {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      .dsh-tip-toast__title {
         overflow: hidden;
         color: var(--dsw-alias-label-primary);
+        font-size: 14px;
         font-weight: 650;
         letter-spacing: .01em;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .dsh-tip-toast__hint {
+        overflow: hidden;
+        color: var(--dsw-alias-label-secondary);
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dsh-tip-toast__arrow {
+        flex: 0 0 auto;
+        color: var(--dsw-alias-brand-primary);
+        font-size: 18px;
+        font-weight: 700;
+        transition: transform 140ms ease;
+      }
+      .dsh-tip-action:hover .dsh-tip-toast__arrow { transform: translateX(2px); }
       @keyframes dsh-tip-frame-pulse {
         0%, 100% { opacity: 0; }
         30% { opacity: .9; }
         66% { opacity: .22; }
       }
       @keyframes dsh-tip-toast-life {
-        0% { opacity: 0; transform: translate3d(0, 10px, 0) scale(.97); }
+        0% { opacity: 0; transform: translate3d(0, -10px, 0) scale(.97); }
         8% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
         88% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-        100% { opacity: 0; transform: translate3d(0, 5px, 0) scale(.985); }
+        100% { opacity: 0; transform: translate3d(0, -5px, 0) scale(.985); }
       }
       @keyframes dsh-tip-check-pop {
         0% { opacity: 0; transform: scale(.55) rotate(-16deg); }
@@ -91,7 +141,7 @@ window.__ModuleLoader__.load({
       }
       @media (prefers-reduced-motion: reduce) {
         .dsh-tip-frame { opacity: .42; animation: none; box-shadow: none; }
-        .dsh-tip-toast, .dsh-tip-toast__icon { animation: none; }
+        .dsh-tip-action, .dsh-tip-toast__icon, .dsh-tip-toast__arrow { animation: none; transition: none; }
       }
     `;
 
@@ -196,7 +246,7 @@ window.__ModuleLoader__.load({
       };
     }
 
-    function createCompletionNotice(locale) {
+    function createCompletionNotice(locale, uiWorkspace) {
       const translate = locale.bind(LOCALE_NAMESPACE);
       const subscribeLocale = (listener) => locale.subscribe(listener);
       const getLocaleSnapshot = () => locale.getSnapshot();
@@ -218,7 +268,7 @@ window.__ModuleLoader__.load({
             setNoticeState((previous) => previous.notice === notice
               ? { ...previous, notice: null }
               : previous);
-          }, 5200);
+          }, 6500);
           return () => window.clearTimeout(timer);
         }, [notice]);
 
@@ -232,21 +282,35 @@ window.__ModuleLoader__.load({
             'aria-hidden': true,
           }),
           h('div', {
-            key: `${animationKey}:toast`,
             className: 'dsh-tip-toast',
             role: 'status',
             'aria-live': 'polite',
             'aria-atomic': 'true',
           },
+          h('button', {
+            key: `${animationKey}:action`,
+            type: 'button',
+            className: 'dsh-tip-action',
+            'aria-label': translate('openSession'),
+            onClick() {
+              uiWorkspace.openSession(notice.sessionId);
+              setNoticeState((previous) => previous.notice === notice
+                ? { ...previous, notice: null }
+                : previous);
+            },
+          },
           h('span', { className: 'dsh-tip-toast__icon', 'aria-hidden': true }, '✓'),
-          h('span', { className: 'dsh-tip-toast__text' }, translate('heading'))));
+          h('span', { className: 'dsh-tip-toast__copy' },
+            h('span', { className: 'dsh-tip-toast__title' }, translate('heading')),
+            h('span', { className: 'dsh-tip-toast__hint' }, translate('openHint'))),
+          h('span', { className: 'dsh-tip-toast__arrow', 'aria-hidden': true }, '→'))));
       }
 
       return CompletionNotice;
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'uiWorkspace'],
       apply(ctx) {
         ctx.effect(
           () => ctx.locale.register(LOCALE_NAMESPACE, DICTIONARIES),
@@ -256,7 +320,7 @@ window.__ModuleLoader__.load({
           name: 'shell.overlay',
           id: 'dsh-tip-completion-notice',
           order: 20,
-        }, createCompletionNotice(ctx.locale)));
+        }, createCompletionNotice(ctx.locale, ctx.uiWorkspace)));
       },
     };
   },

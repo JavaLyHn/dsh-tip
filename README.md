@@ -11,7 +11,7 @@ The default is `both`.
 - `taskbar` requests a generic Windows taskbar dot while the DSH window is unfocused; focus clears it. It only works when the Windows Desktop build includes the `dsh-taskbar-badge` bridge; otherwise it has no effect.
 - `both` shows the in-app notice and requests the taskbar dot when supported. Without the Desktop bridge, the in-app notice still works.
 
-Only committed successful turn completions trigger a notice; aborted, blocked, failed, token-limited, interrupted, and forked turns are ignored. The in-app notice prefers the session's existing title. If no title is available, it uses a one-line, control-character-free summary of the latest user prompt when available, bounded to 80 Unicode code points; otherwise it shows a localized generic label. That label stays inside DSH; the taskbar IPC carries only its fixed message type and an enabled/disabled boolean, and the icon itself is a generic dot. The plugin does not create an OS toast, play a sound, or send notification content to an external service.
+Only committed successful turn completions trigger a notice; aborted, blocked, failed, token-limited, interrupted, and forked turns are ignored. The in-app notice appears near the top center with a brief DSH-window edge pulse. Click the localized banner to open the session that completed. It shows no session title or prompt preview, and it respects reduced-motion preferences. The taskbar IPC carries only its fixed message type and an enabled/disabled boolean, and the icon itself is a generic dot. The plugin does not create an OS toast, play a sound, or send notification content to an external service.
 
 ## Download and install
 
